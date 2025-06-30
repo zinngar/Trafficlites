@@ -83,12 +83,12 @@ export default function App() {
                 coordinate={light.coords}
                 title={light.title}
                 description={`Light is ${light.status}`}
-                pinColor={
+                image={
                   light.status === 'green'
-                    ? 'green'
+                    ? { uri: 'https://via.placeholder.com/32/008000/FFFFFF?Text=G' }
                     : light.status === 'yellow'
-                    ? 'gold'
-                    : 'red'
+                    ? { uri: 'https://via.placeholder.com/32/FFFF00/000000?Text=Y' }
+                    : { uri: 'https://via.placeholder.com/32/FF0000/FFFFFF?Text=R' }
                 }
               />
             ))}
