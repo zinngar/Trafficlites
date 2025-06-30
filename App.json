@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Trafficlites",
+    "slug": "trafficlites",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "bundleIdentifier": "com.zinngar.trafficlites",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.zinngar.trafficlites",
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
