@@ -35,8 +35,8 @@ export default function App() {
     Alert.alert('Reported', `You reported: ${status.toUpperCase()} light`);
 
     // Example POST request (commented out - backend needed)
-    /*
-    fetch('https://your-api-url/report', {
+
+    fetch('http://localhost:4000/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -60,7 +60,7 @@ export default function App() {
   // Update UI to show error to user
   // Alert.alert('Error', 'Could not connect to server to report status.');
     });
-    */
+
   };
 
   return (
