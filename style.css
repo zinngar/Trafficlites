@@ -1,0 +1,150 @@
+/* style.css */
+body{font-family:Arial,sans-serif;margin:0;padding:0;display:flex;flex-direction:column;min-height:100vh;}
+header{background-color:#333;color:white;padding:1em;text-align:center;}
+main{flex-grow:1;padding:1em;}
+#mapid{height:500px;width:100%;border:1px solid #ccc;}
+#report-form-container{padding:15px;background-color:#f9f9f9;border:1px solid #eee;border-radius:5px; clear: both;} /* Added clear: both here */
+#report-form-container h2{margin-top:0;}
+#trafficReportForm div{margin-bottom:10px;}
+#trafficReportForm label{display:inline-block;width:100px;margin-bottom:5px;}
+#trafficReportForm input[type="text"],#trafficReportForm select{padding:8px;border:1px solid #ccc;border-radius:4px;width:calc(100% - 120px);}
+#trafficReportForm button{padding:10px 15px;background-color:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;}
+#trafficReportForm button:hover{background-color:#218838;}
+footer{background-color:#333;color:white;text-align:center;padding:1em;margin-top:auto;}
+
+/* Added styles for map and sidebar layout */
+#main-content-area {
+    display: flex;
+    gap: 15px; /* Space between map column and sidebar */
+    flex-wrap: wrap; /* Allow wrapping on smaller screens */
+    margin-bottom: 20px;
+}
+
+#map-column {
+    flex: 2; /* Map column takes up more space */
+    min-width: 300px; /* Minimum width before wrapping */
+    display: flex;
+    flex-direction: column; /* Stack elements in map column vertically */
+}
+
+#report-list-sidebar {
+    flex: 1; /* Sidebar takes less space */
+    min-width: 280px; /* Minimum width before wrapping */
+    border-left: 1px solid #ddd;
+    padding-left: 15px;
+    background-color: #f9f9f9;
+}
+
+#report-list-sidebar h2 {
+    margin-top: 0;
+    font-size: 1.2em;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.5em;
+}
+
+#report-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    max-height: 450px;
+    overflow-y: auto;
+}
+
+#report-list li {
+    padding: 8px 5px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+#report-list li:hover {
+    background-color: #e9e9e9;
+}
+
+#report-list li .status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+    border: 1px solid #777;
+}
+#report-list li .status-green { background-color: green; }
+#report-list li .status-yellow { background-color: orange; }
+#report-list li .status-red { background-color: red; }
+#report-list li .status-malfunctioning { background-color: grey; }
+#report-list li .status-unknown { background-color: lightgrey; }
+
+/* Styles for the Status Input Modal */
+.modal-overlay {
+    display: none; /* Hidden by default */
+    position: fixed; /* Stay in place */
+    z-index: 1000; /* Sit on top */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto; /* Enable scroll if needed */
+    background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+    justify-content: center; /* Center content horizontally */
+    align-items: center; /* Center content vertically */
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: auto; /* Auto margins for centering, works with flex too */
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 400px; /* Max width */
+    border-radius: 8px;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+}
+
+.modal-content h3 {
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.5em;
+}
+
+.modal-content label {
+    display: inline-block;
+    margin-right: 10px;
+    margin-bottom: 5px;
+}
+
+.modal-content select {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: calc(100% - 70px); /* Adjust based on label */
+}
+
+.modal-actions {
+    text-align: right;
+    margin-top: 20px;
+}
+
+.modal-actions button {
+    padding: 8px 12px;
+    margin-left: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.modal-actions button#modalSubmitStatusBtn {
+    background-color: #28a745;
+    color: white;
+}
+.modal-actions button#modalSubmitStatusBtn:hover {
+    background-color: #218838;
+}
+
+.modal-actions button#modalCancelBtn {
+    background-color: #ccc;
+    color: #333;
+}
+.modal-actions button#modalCancelBtn:hover {
+    background-color: #bbb;
+}
