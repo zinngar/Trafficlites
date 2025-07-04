@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg'); // Still need Pool constructor
 require('dotenv').config();
+const axios = require('axios'); // Dependency: npm install axios
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -275,8 +276,358 @@ function getNextStatus(currentStatus) {
   if (currentStatus === 'green') return 'yellow';
   if (currentStatus === 'yellow') return 'red';
   if (currentStatus === 'red') return 'green';
-  return 'unknown'; // Should not happen with valid statuses
+  return 'unknown';
 }
+
+// --- Simulation Helper Functions ---
+
+// lightData: { average_durations: { green, yellow, red }, last_seen_status, last_seen_timestamp (Date object) }
+// arrivalTimeInMs: time in milliseconds (e.g., Date.getTime())
+function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
+  const { average_durations, last_seen_status, last_seen_timestamp } = lightData;
+
+  // Use a larger default if specific averages are missing, to make simulation proceed.
+  // Consider impact on accuracy - 'unknown' might be better if critical averages are missing.
+  const G_AVG = (average_durations && average_durations.green != null) ? average_durations.green : 60;
+  const Y_AVG = (average_durations && average_durations.yellow != null) ? average_durations.yellow : 5;
+  const R_AVG = (average_durations && average_durations.red != null) ? average_durations.red : 45;
+
+  const effective_averages = {
+      green: G_AVG,
+      yellow: Y_AVG,
+      red: R_AVG,
+      unknown: 60 // Default for unknown state if it somehow occurs
+  };
+
+  if (!last_seen_status || !last_seen_timestamp) {
+    return { predicted_status: 'unknown', wait_time_seconds: 0 }; // Default high wait for unknown?
+  }
+
+  let currentSimTimeMs = last_seen_timestamp.getTime();
+  let currentSimStatus = last_seen_status;
+
+  if (arrivalTimeInMs < currentSimTimeMs) {
+    // Trying to predict for a time before our last known state - this is tricky / usually an error in caller.
+    // For now, assume it's still in last_seen_status, no wait.
+    // Or, if arrivalTime is very close to last_seen_timestamp, this might be fine.
+    if ((currentSimTimeMs - arrivalTimeInMs) < 1000 ) { // within 1 sec
+        return { predicted_status: last_seen_status, wait_time_seconds: 0 };
+    }
+    // If significantly in the past, it's an unknown.
+    return { predicted_status: 'unknown', wait_time_seconds: 0 };
+  }
+
+
+  while (currentSimTimeMs < arrivalTimeInMs) {
+    const avgDurationForCurrentSimStatusMs = (effective_averages[currentSimStatus.toLowerCase()] || 60) * 1000;
+
+    if (currentSimTimeMs + avgDurationForCurrentSimStatusMs > arrivalTimeInMs) {
+      // Arrival happens within this currentSimStatus
+      let timeRemainingInCurrentSimStatusMs = (currentSimTimeMs + avgDurationForCurrentSimStatusMs) - arrivalTimeInMs;
+      let wait_time_seconds = 0;
+      if (currentSimStatus === 'red') {
+        wait_time_seconds = Math.max(0, Math.round(timeRemainingInCurrentSimStatusMs / 1000));
+      } else if (currentSimStatus === 'yellow') {
+        const avgRedDurationMs = (effective_averages.red || 45) * 1000;
+        wait_time_seconds = Math.max(0, Math.round((timeRemainingInCurrentSimStatusMs + avgRedDurationMs) / 1000));
+      }
+      return { predicted_status: currentSimStatus, wait_time_seconds: wait_time_seconds };
+    } else {
+      currentSimTimeMs += avgDurationForCurrentSimStatusMs;
+      currentSimStatus = getNextStatus(currentSimStatus);
+    }
+  }
+
+  // Arrival is exactly at a transition point. currentSimStatus is the state it JUST turned TO.
+  let wait_time_seconds = 0;
+  if (currentSimStatus === 'red') {
+    wait_time_seconds = Math.round(effective_averages.red);
+  } else if (currentSimStatus === 'yellow') {
+    wait_time_seconds = Math.round(effective_averages.yellow + effective_averages.red);
+  }
+  return { predicted_status: currentSimStatus, wait_time_seconds: wait_time_seconds };
+}
+
+async function simulateRouteForDeparture(simulatableRoute, departureTimeMs, lightPredictionsMap, dbPool) {
+  let totalWaitTimeSeconds = 0;
+  let accumulatedTravelTimeMs = 0; // Time from departure, not including waits yet
+
+  for (const segment of simulatableRoute.segments) {
+    // Travel time for this segment (from Google Directions)
+    const segmentTravelTimeMs = segment.duration_seconds * 1000;
+
+    // Arrival time at the END of this segment, BEFORE considering the light (if any)
+    const arrivalAtSegmentEndWithoutLightMs = departureTimeMs + accumulatedTravelTimeMs + segmentTravelTimeMs;
+
+    accumulatedTravelTimeMs += segmentTravelTimeMs; // Add this segment's travel to overall travel
+
+    if (segment.ends_at_traffic_light_cluster_id) {
+      const lightData = lightPredictionsMap.get(segment.ends_at_traffic_light_cluster_id);
+
+      if (lightData) {
+        // Ensure last_seen_timestamp is a Date object
+        const lightDataForSim = {
+            ...lightData,
+            last_seen_timestamp: new Date(lightData.last_seen_timestamp) // Convert if string
+        };
+
+        const predictionAtArrival = predictLightStateAtFutureTime(lightDataForSim, arrivalAtSegmentEndWithoutLightMs);
+        totalWaitTimeSeconds += predictionAtArrival.wait_time_seconds;
+        // This wait time effectively extends the time spent before starting the next segment
+        accumulatedTravelTimeMs += (predictionAtArrival.wait_time_seconds * 1000);
+      } else {
+        console.warn(`Sim: No prediction data for light cluster ${segment.ends_at_traffic_light_cluster_id}. Assuming 0 wait.`);
+      }
+    }
+  }
+  return totalWaitTimeSeconds;
+}
+
+async function getDepartureAdvice(simulatableRoute, lightPredictionsMap, dbPool) {
+  if (!simulatableRoute || !simulatableRoute.segments || simulatableRoute.segments.length === 0) {
+    return {
+      advice: "Route data is insufficient for departure advice.",
+      optimal_departure_offset_seconds: 0,
+      baseline_wait_time_seconds: null,
+      optimal_wait_time_seconds: null,
+      wait_time_savings_seconds: 0,
+    };
+  }
+
+  const currentTimeMs = new Date().getTime();
+  let bestOffsetSeconds = 0;
+
+  const baselineWaitTimeSeconds = await simulateRouteForDeparture(simulatableRoute, currentTimeMs, lightPredictionsMap, dbPool);
+  let minWaitTimeSeconds = baselineWaitTimeSeconds;
+
+  const offsetsToTest = [-60, -30, 30, 60, 90, 120, 150, 180];
+
+  for (const offset of offsetsToTest) {
+    const departureTimeMs = currentTimeMs + (offset * 1000);
+    const currentWaitTimeSeconds = await simulateRouteForDeparture(simulatableRoute, departureTimeMs, lightPredictionsMap, dbPool);
+
+    if (currentWaitTimeSeconds < minWaitTimeSeconds) {
+      minWaitTimeSeconds = currentWaitTimeSeconds;
+      bestOffsetSeconds = offset;
+    }
+  }
+
+  const waitTimeSavingsSeconds = baselineWaitTimeSeconds - minWaitTimeSeconds;
+
+  let adviceMessage = "Current departure time seems reasonable based on predictions.";
+  if (bestOffsetSeconds > 0 && waitTimeSavingsSeconds > 10) {
+    adviceMessage = `Consider departing in ${bestOffsetSeconds} seconds to potentially save ~${Math.round(waitTimeSavingsSeconds)}s at lights.`;
+  } else if (bestOffsetSeconds < 0 && waitTimeSavingsSeconds > 10) {
+     adviceMessage = `If you had left ${-bestOffsetSeconds} seconds ago, you might have saved ~${Math.round(waitTimeSavingsSeconds)}s. For current departure, timing seems reasonable.`;
+  } else if (waitTimeSavingsSeconds <= 0 && bestOffsetSeconds === 0 && baselineWaitTimeSeconds !== null) {
+     adviceMessage = "Departing now appears to be optimal based on current predictions.";
+  } else if (baselineWaitTimeSeconds === null) {
+    adviceMessage = "Could not determine baseline wait time; advice unavailable.";
+  }
+
+
+  return {
+    advice: adviceMessage,
+    optimal_departure_offset_seconds: bestOffsetSeconds,
+    baseline_wait_time_seconds: baselineWaitTimeSeconds !== null ? Math.round(baselineWaitTimeSeconds) : null,
+    optimal_wait_time_seconds: minWaitTimeSeconds !== null ? Math.round(minWaitTimeSeconds) : null,
+    wait_time_savings_seconds: waitTimeSavingsSeconds !== null ? Math.round(waitTimeSavingsSeconds) : 0,
+  };
+}
+
+// --- End Simulation Helper Functions ---
+
+// Helper to decode Google's encoded polyline format
+function decodeGooglePolyline(encoded) {
+    if (!encoded) return [];
+    let points = [];
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
+    while (index < len) {
+        let b, shift = 0, result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
+        shift = 0;
+        result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
+        points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+    }
+    return points;
+}
+
+// Helper function to fetch light timing and base prediction data for a specific cluster_id
+async function fetchLightTimingAndPredictionDataForCluster(dbPool, clusterId) {
+    try {
+        const avgDurationsResult = await dbPool.query(
+            `SELECT current_status, AVG(duration_seconds) as avg_duration
+             FROM traffic_light_cycle_segments
+             WHERE cluster_id = $1 AND duration_seconds IS NOT NULL AND current_status IN ('green', 'yellow', 'red')
+             GROUP BY current_status`,
+            [clusterId]
+        );
+        const average_durations = { green: null, yellow: null, red: null };
+        avgDurationsResult.rows.forEach(row => {
+            average_durations[row.current_status.toLowerCase()] = Math.round(row.avg_duration);
+        });
+
+        const lastSegmentResult = await dbPool.query(
+           `SELECT current_status, start_timestamp
+            FROM traffic_light_cycle_segments
+            WHERE cluster_id = $1 ORDER BY start_timestamp DESC LIMIT 1`,
+            [clusterId]
+        );
+
+        if (lastSegmentResult.rows.length === 0 && avgDurationsResult.rows.length === 0) return null;
+
+        const lastSegment = lastSegmentResult.rows.length > 0 ? lastSegmentResult.rows[0] : null;
+
+        return {
+            cluster_id: clusterId, // Good to have for mapping
+            average_durations,
+            // Data needed by predictLightStateAtFutureTime
+            last_seen_status: lastSegment ? lastSegment.current_status : null,
+            last_seen_timestamp: lastSegment ? new Date(lastSegment.start_timestamp) : null
+        };
+    } catch(e) {
+        console.error(`Error fetching light data for cluster ${clusterId}:`, e);
+        return null;
+    }
+}
+
+
+app.post('/route_departure_advice', async (req, res) => {
+  const dbPool = req.app.locals.dbPool;
+  const { origin, destination } = req.body; // Expects { origin: {lat, lon}, destination: {lat, lon} }
+
+  if (!origin || typeof origin.lat !== 'number' || typeof origin.lon !== 'number' ||
+      !destination || typeof destination.lat !== 'number' || typeof destination.lon !== 'number') {
+    return res.status(400).json({ error: 'Invalid origin or destination format. Expected {lat: number, lon: number}.' });
+  }
+
+  const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY_BACKEND;
+  if (!GOOGLE_API_KEY) {
+    console.error('Google Maps API Key (GOOGLE_MAPS_API_KEY_BACKEND) for backend is not configured in .env');
+    return res.status(500).json({ error: 'Routing service API key not configured on server.' });
+  }
+
+  try {
+    // 1. Fetch route from Google Directions API
+    const googleDirectionsURL = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lon}&destination=${destination.lat},${destination.lon}&key=${GOOGLE_API_KEY}`;
+    let googleRouteData;
+    try {
+      const directionsResponse = await axios.get(googleDirectionsURL);
+      if (directionsResponse.data.routes && directionsResponse.data.routes.length > 0) {
+        googleRouteData = directionsResponse.data.routes[0];
+      } else {
+        return res.status(404).json({ error: 'Route not found by Google Directions API.', details: directionsResponse.data.status });
+      }
+    } catch (e) {
+      console.error('Error fetching from Google Directions API:', e.message);
+      return res.status(502).json({ error: 'Failed to fetch route from external routing service.' });
+    }
+
+    // 2. Construct SimulatableRoute
+    const simulatableRoute = {
+      origin: { latitude: googleRouteData.legs[0].start_location.lat, longitude: googleRouteData.legs[0].start_location.lng },
+      destination: { latitude: googleRouteData.legs[0].end_location.lat, longitude: googleRouteData.legs[0].end_location.lng },
+      total_initial_duration_seconds: googleRouteData.legs[0].duration.value,
+      total_distance_meters: googleRouteData.legs[0].distance.value,
+      segments: [], // This will be populated based on Google steps and our lights
+    };
+
+    const lightPredictionsMap = new Map(); // cluster_id -> lightData for simulation
+    const allRoutePolylinePoints = decodeGooglePolyline(googleRouteData.overview_polyline.points);
+    let accumulatedDurationSeconds = 0;
+
+    // More robust light identification and segment creation:
+    // Iterate through Google's route steps. For each step, check for lights along its path.
+    for (const step of googleRouteData.legs[0].steps) {
+        const stepStartLat = step.start_location.lat;
+        const stepStartLon = step.start_location.lng;
+        const stepEndLat = step.end_location.lat;
+        const stepEndLon = step.end_location.lng;
+        const stepDurationSeconds = step.duration.value;
+
+        // Simplified: Check midpoint of the step for a nearby light cluster
+        // A production system would sample along the step's polyline or use spatial queries.
+        const midLat = (stepStartLat + stepEndLat) / 2;
+        const midLon = (stepStartLon + stepEndLon) / 2;
+
+        const nearbyClusterResult = await dbPool.query(
+           `SELECT cluster_id
+            FROM traffic_light_clusters,
+                 (SELECT $1::float AS lat, $2::float AS lon) AS search_point
+            ORDER BY ST_Distance(
+                ST_SetSRID(ST_MakePoint(center_longitude, center_latitude), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(search_point.lon, search_point.lat), 4326)::geography
+            ) ASC
+            LIMIT 1`, // This query requires PostGIS ST_Distance, ST_MakePoint, ST_SetSRID.
+                      // If PostGIS is not available, fallback to Haversine in app or simpler DB query.
+                      // For now, using Haversine-like logic as before for consistency:
+        // [midLat, midLon] // Parameters for the PostGIS version
+        );
+        // Fallback to Haversine if PostGIS not used:
+        const fallbackNearbyCluster = await dbPool.query(
+             `SELECT cluster_id, (6371000 * acos(cos(radians($1)) * cos(radians(center_latitude)) * cos(radians(center_longitude) - radians($2)) + sin(radians($1)) * sin(radians(center_latitude)))) AS distance
+              FROM traffic_light_clusters ORDER BY distance ASC LIMIT 1`,
+            [midLat, midLon]
+        );
+
+        let lightClusterIdForThisSegmentEnd = null;
+        if (fallbackNearbyCluster.rows.length > 0 && fallbackNearbyCluster.rows[0].distance < CLUSTERING_RADIUS_METERS * 1.5) { // Wider radius for step matching
+            lightClusterIdForThisSegmentEnd = fallbackNearbyCluster.rows[0].cluster_id;
+            if (!lightPredictionsMap.has(lightClusterIdForThisSegmentEnd)) {
+                const lightData = await fetchLightTimingAndPredictionDataForCluster(dbPool, lightClusterIdForThisSegmentEnd);
+                if (lightData) {
+                    lightPredictionsMap.set(lightClusterIdForThisSegmentEnd, lightData);
+                }
+            }
+        }
+
+        simulatableRoute.segments.push({
+            start_location: { latitude: stepStartLat, longitude: stepStartLon },
+            end_location: { latitude: stepEndLat, longitude: stepEndLon },
+            duration_seconds: stepDurationSeconds,
+            distance_meters: step.distance.value,
+            ends_at_traffic_light_cluster_id: lightClusterIdForThisSegmentEnd
+        });
+        accumulatedDurationSeconds += stepDurationSeconds;
+    }
+
+
+    if (lightPredictionsMap.size === 0) {
+        return res.json({
+            advice: "No known traffic lights with timing data found on this route to provide advice.",
+            optimal_departure_offset_seconds: 0,
+            baseline_wait_time_seconds: null,
+            optimal_wait_time_seconds: null,
+            wait_time_savings_seconds: 0,
+            route: googleRouteData
+        });
+    }
+
+    // 3. Call getDepartureAdvice
+    const adviceResult = await getDepartureAdvice(simulatableRoute, lightPredictionsMap, dbPool);
+
+    res.json({ ...adviceResult, route: googleRouteData });
+
+  } catch (err) {
+    console.error('Error in /route_departure_advice:', err.message, err.stack);
+    res.status(500).json({ error: 'Internal server error while generating departure advice.' });
+  }
+});
+
 
 // GET: Calculate and return average light timings AND PREDICTION for a nearby cluster
 app.get('/light_timings/:latitude/:longitude', async (req, res) => {
