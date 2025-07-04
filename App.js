@@ -70,7 +70,8 @@ export default function App() {
   const [predictionData, setPredictionData] = useState(null);
   const [destination, setDestination] = useState('');
   const [routePolyline, setRoutePolyline] = useState([]);
-  const [onRouteLightPredictions, setOnRouteLightPredictions] = useState([]); // State for lights on route
+  const [onRouteLightPredictions, setOnRouteLightPredictions] = useState([]);
+  const [departureAdvice, setDepartureAdvice] = useState(null); // State for departure advice
 
   // Dummy traffic light data for markers - this should eventually come from backend or be dynamic
   const trafficLights = [
@@ -350,6 +351,47 @@ export default function App() {
     }
   };
 
+  const fetchDepartureAdvice = async () => {
+    if (!location || !destination) {
+      Alert.alert("Missing Info", "Current location and destination are needed for departure advice.");
+      setDepartureAdvice(null);
+      return;
+    }
+    if (!routePolyline || routePolyline.length === 0) {
+        Alert.alert("No Route", "Please get a route first before requesting departure advice.");
+        setDepartureAdvice(null);
+        return;
+    }
+
+    setDepartureAdvice({ loading: true }); // Indicate loading state
+
+    try {
+      const response = await fetch('http://localhost:4000/route_departure_advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: { lat: location.latitude, lon: location.longitude },
+          destination: { lat: routePolyline[routePolyline.length -1].latitude, lon: routePolyline[routePolyline.length -1].longitude } // Use last point of current polyline as destination
+          // Alternatively, pass the destination string or the full polyline if backend supports it
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
+        console.warn(`Failed to fetch departure advice: ${errorData.message}`);
+        Alert.alert("Advice Error", `Could not fetch departure advice: ${errorData.message || 'Server error'}`);
+        setDepartureAdvice({ error: errorData.message || 'Server error' });
+        return;
+      }
+      const data = await response.json();
+      setDepartureAdvice(data);
+    } catch (error) {
+      console.error('Error fetching departure advice:', error);
+      Alert.alert("Network Error", "Failed to connect to server for departure advice.");
+      setDepartureAdvice({ error: 'Network error' });
+    }
+  };
+
 
   return (
     <View style={styles.container}>
@@ -366,23 +408,20 @@ export default function App() {
             showsUserLocation={true}
           >
             {routePolyline.length > 0 && (
-              <Polyline // Ensure Polyline is imported from react-native-maps
+              <Polyline
                 coordinates={routePolyline}
                 strokeColor="#007bff"
                 strokeWidth={4}
               />
             )}
-            {/* Display markers for lights found on the route */}
             {onRouteLightPredictions.map((item) => {
-              // Determine marker color based on predicted status
-              let markerColor = 'grey'; // Default for unknown or other statuses
+              let markerColor = 'grey';
               if (item.prediction && item.prediction.predicted_current_status) {
                 const status = item.prediction.predicted_current_status.toLowerCase();
                 if (status === 'green') markerColor = 'green';
                 else if (status === 'yellow') markerColor = 'yellow';
                 else if (status === 'red') markerColor = 'red';
               }
-
               return (
                 <Marker
                   key={`route-light-${item.cluster_id}`}
@@ -400,8 +439,6 @@ export default function App() {
                 />
               );
             })}
-            {/* Fallback to dummy trafficLights markers if no route predictions, or keep for general context */}
-            {/* This part might be removed or changed if onRouteLightPredictions is the primary source of markers when a route is active */}
             {!onRouteLightPredictions.length && trafficLights.map((light) => (
               <Marker
                 key={`dummy-${light.id}`}
@@ -478,6 +515,27 @@ export default function App() {
                  {/* <Text style={styles.predictionText}>Avg Green: {predictionData.average_durations.green}s</Text> */}
               </View>
             )}
+
+            {/* Departure Advice Button and Display */}
+            {routePolyline.length > 0 && ( // Only show if a route is active
+              <TouchableOpacity style={styles.actionButton} onPress={fetchDepartureAdvice}>
+                <Text style={styles.actionButtonText}>Get Timing Advice</Text>
+              </TouchableOpacity>
+            )}
+            {departureAdvice && departureAdvice.loading && <Text style={styles.predictionText}>Loading advice...</Text>}
+            {departureAdvice && departureAdvice.error && <Text style={styles.predictionTextError}>Advice Error: {departureAdvice.error}</Text>}
+            {departureAdvice && !departureAdvice.loading && !departureAdvice.error && (
+              <View style={styles.adviceContainer}>
+                <Text style={styles.predictionTitle}>Departure Advice:</Text>
+                <Text style={styles.predictionText}>{departureAdvice.advice}</Text>
+                {departureAdvice.optimal_departure_offset_seconds !== undefined && (
+                  <Text style={styles.predictionText}>
+                    Optimal Offset: {departureAdvice.optimal_departure_offset_seconds}s
+                    (Saves ~{departureAdvice.wait_time_savings_seconds}s)
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         </>
       ) : (
@@ -494,7 +552,7 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  buttonContainer: { // This container holds the report buttons AND the prediction UI
+  buttonContainer: {
     position: 'absolute',
     bottom: 20,
     right: 20,
@@ -506,25 +564,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
-    alignItems: 'center', // Center items like the predict button if it's standalone
+    alignItems: 'center',
+    maxWidth: '80%', // Prevent it from becoming too wide with lots of text
   },
-  buttonRow: { // For Green, Yellow, Red buttons
+  buttonRow: {
     flexDirection: 'column',
   },
-  reportText: { // "Report Light:"
+  reportText: {
     textAlign: 'center',
     fontWeight: 'bold',
     marginBottom: 5,
     color: '#333',
   },
-  status: { // "Reported: GREEN"
+  status: {
     textAlign: 'center',
     fontStyle: 'italic',
     marginTop: 5,
-    marginBottom: 10, // Space before predict button
+    marginBottom: 10,
     color: '#555',
   },
-  reportButton: { // For G, Y, R buttons
+  reportButton: {
     paddingVertical: 12, // Increased padding for larger touch target
     paddingHorizontal: 15, // Increased padding
     borderRadius: 8,
@@ -604,5 +663,12 @@ const styles = StyleSheet.create({
     marginBottom: 3,
     textAlign: 'center',
     color: 'red',
+  },
+  adviceContainer: {
+    marginTop: 5,
+    padding: 8,
+    backgroundColor: 'rgba(220, 220, 255, 0.85)', // Light blueish background
+    borderRadius: 5,
+    alignItems: 'center',
   }
 });
