@@ -9,7 +9,13 @@
     "web": "expo start --web",
     "build:android": "eas build -p android --profile preview",
     "build:ios": "eas build -p ios --profile preview",
-    "build:web": "npx expo export -p web"
+    "build:web": "npx expo export -p web",
+    "lint": "echo \"Linting placeholder - configure your linter here\"",
+    "test": "echo \"Testing placeholder - configure your test runner here\"",
+    "build:all": "npm run lint && npm run test && npm run build:web && npm run build:android && npm run build:ios",
+    "submit:android": "eas submit -p android --latest",
+    "submit:ios": "eas submit -p ios --latest",
+    "submit:all": "npm run submit:android && npm run submit:ios"
   },
   "dependencies": {
     "expo": "~51.0.2",
