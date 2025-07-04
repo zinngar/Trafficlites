@@ -271,7 +271,14 @@ app.listen(PORT, async () => {
   // Consider graceful shutdown for closing pool on server exit (e.g. process.on('SIGINT', ...))
 });
 
-// GET: Calculate and return average light timings for a nearby cluster
+function getNextStatus(currentStatus) {
+  if (currentStatus === 'green') return 'yellow';
+  if (currentStatus === 'yellow') return 'red';
+  if (currentStatus === 'red') return 'green';
+  return 'unknown'; // Should not happen with valid statuses
+}
+
+// GET: Calculate and return average light timings AND PREDICTION for a nearby cluster
 app.get('/light_timings/:latitude/:longitude', async (req, res) => {
   const dbPool = req.app.locals.dbPool;
   const { latitude, longitude } = req.params;
@@ -312,59 +319,114 @@ app.get('/light_timings/:latitude/:longitude', async (req, res) => {
 
     const clusterId = closestCluster.cluster_id;
 
-    // 2. Query cycle segments for that cluster_id where duration is not null
-    const segmentsResult = await dbPool.query(
-      `SELECT current_status, duration_seconds
+    // 2. Calculate Average Durations
+    const avgDurationsResult = await dbPool.query(
+      `SELECT current_status, AVG(duration_seconds) as avg_duration
        FROM traffic_light_cycle_segments
-       WHERE cluster_id = $1 AND duration_seconds IS NOT NULL AND current_status IN ('green', 'yellow', 'red')`,
+       WHERE cluster_id = $1 AND duration_seconds IS NOT NULL AND current_status IN ('green', 'yellow', 'red')
+       GROUP BY current_status`,
       [clusterId]
     );
 
-    if (segmentsResult.rows.length === 0) {
-      return res.status(404).json({
-        message: 'No timing data available for the nearest traffic light cluster.',
-        cluster_id: clusterId,
-        cluster_location: {
-          latitude: closestCluster.center_latitude,
-          longitude: closestCluster.center_longitude
-        }
-      });
-    }
-
-    // 3. Calculate average durations
-    const timings = {
-      green: { totalDuration: 0, count: 0, average: 0 },
-      yellow: { totalDuration: 0, count: 0, average: 0 },
-      red: { totalDuration: 0, count: 0, average: 0 },
-    };
-
-    segmentsResult.rows.forEach(segment => {
-      const status = segment.current_status.toLowerCase();
-      if (timings[status]) {
-        timings[status].totalDuration += segment.duration_seconds;
-        timings[status].count++;
-      }
+    const averageDurations = { green: null, yellow: null, red: null };
+    avgDurationsResult.rows.forEach(row => {
+      averageDurations[row.current_status.toLowerCase()] = Math.round(row.avg_duration);
     });
 
-    const averageTimings = {
-        cluster_id: clusterId,
-        cluster_center: {
-            latitude: closestCluster.center_latitude,
-            longitude: closestCluster.center_longitude
-        },
-        reports_in_cluster: closestCluster.report_count,
-        average_durations: {}
+    // Initialize response payload
+    let responsePayload = {
+      cluster_id: clusterId,
+      cluster_center: {
+        latitude: closestCluster.center_latitude,
+        longitude: closestCluster.center_longitude,
+      },
+      reports_in_cluster: closestCluster.report_count,
+      average_durations: averageDurations,
+      prediction: {
+        predicted_current_status: 'unknown',
+        predicted_time_remaining_seconds: null,
+        prediction_confidence: 'low',
+        last_seen_status: null,
+        last_seen_timestamp: null,
+      },
     };
 
-    for (const status in timings) {
-      if (timings[status].count > 0) {
-        averageTimings.average_durations[status] = Math.round(timings[status].totalDuration / timings[status].count);
-      } else {
-        averageTimings.average_durations[status] = null; // Or 0, or omit
+    // 3. Fetch Most Recent Segment for Prediction Logic
+    const lastSegmentResult = await dbPool.query(
+      `SELECT current_status, start_timestamp, end_timestamp
+       FROM traffic_light_cycle_segments
+       WHERE cluster_id = $1
+       ORDER BY start_timestamp DESC
+       LIMIT 1`,
+      [clusterId]
+    );
+
+    if (lastSegmentResult.rows.length > 0) {
+      const lastSegment = lastSegmentResult.rows[0];
+      responsePayload.prediction.last_seen_status = lastSegment.current_status;
+      responsePayload.prediction.last_seen_timestamp = lastSegment.start_timestamp;
+
+      const timeSinceLastStart = Math.round((new Date() - new Date(lastSegment.start_timestamp)) / 1000); // in seconds
+
+      // Basic Confidence Logic
+      if (closestCluster.report_count >= 5 && timeSinceLastStart < 600) { // At least 5 reports, last seen < 10 mins
+        responsePayload.prediction.prediction_confidence = 'medium';
+        if (closestCluster.report_count >= 10 && timeSinceLastStart < 300) { // At least 10 reports, last seen < 5 mins
+          responsePayload.prediction.prediction_confidence = 'high';
+        }
       }
+
+      const avgDurationForLastSeen = averageDurations[lastSegment.current_status.toLowerCase()];
+
+      if (responsePayload.prediction.prediction_confidence !== 'low' && avgDurationForLastSeen !== null) {
+        if (lastSegment.end_timestamp === null) { // Case A: Last segment is OPEN
+          let timeRemaining = avgDurationForLastSeen - timeSinceLastStart;
+          if (timeRemaining > 0) {
+            responsePayload.prediction.predicted_current_status = lastSegment.current_status;
+            responsePayload.prediction.predicted_time_remaining_seconds = Math.round(timeRemaining);
+          } else { // Light likely changed
+            const nextStatus = getNextStatus(lastSegment.current_status);
+            responsePayload.prediction.predicted_current_status = nextStatus;
+            const avgDurationForNext = averageDurations[nextStatus.toLowerCase()];
+            if (avgDurationForNext !== null) {
+              let timeIntoNext = -timeRemaining; // how much it overshot
+              responsePayload.prediction.predicted_time_remaining_seconds = Math.round(avgDurationForNext - timeIntoNext);
+              if (responsePayload.prediction.predicted_time_remaining_seconds < 0) {
+                responsePayload.prediction.predicted_time_remaining_seconds = null;
+                responsePayload.prediction.prediction_confidence = 'low'; // Downgrade if cycled further or unpredictable
+              }
+            } else {
+              responsePayload.prediction.predicted_current_status = 'unknown';
+              responsePayload.prediction.prediction_confidence = 'low';
+            }
+          }
+        } else { // Case B: Last segment is CLOSED
+          const timeSinceLastEnd = Math.round((new Date() - new Date(lastSegment.end_timestamp)) / 1000);
+          if (timeSinceLastEnd < 60 && responsePayload.prediction.prediction_confidence !== 'low') { // If closed < 1 min ago
+            responsePayload.prediction.predicted_current_status = getNextStatus(lastSegment.current_status);
+            responsePayload.prediction.predicted_time_remaining_seconds = null; // Hard to tell remaining for this new state
+          } else {
+            responsePayload.prediction.prediction_confidence = 'low'; // Too old or closed too long ago
+          }
+        }
+      } else {
+        responsePayload.prediction.prediction_confidence = 'low'; // Not enough data for confident prediction
+      }
+    } else { // No segments at all for this cluster
+        // Average durations would also be null.
+        // No basis for prediction. Keep defaults.
     }
 
-    res.json(averageTimings);
+    // If no segments were found for average calculation AND no last segment was found,
+    // it implies the cluster has no timing data at all.
+    if (avgDurationsResult.rows.length === 0 && lastSegmentResult.rows.length === 0) {
+      // Return a more specific message if no data whatsoever for the cluster.
+      // The default 'unknown' and 'low' confidence in payload is okay,
+      // but we might choose to return 404 if not even average_durations could be computed.
+      // For now, we'll allow returning the payload with null averages and 'unknown' prediction.
+    }
+
+    res.json(responsePayload);
 
   } catch (err) {
     console.error(`Database error in GET /light_timings/${latitude}/${longitude}:`, err);
