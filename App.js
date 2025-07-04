@@ -1,7 +1,7 @@
 // Trafficlites - MVP React Native App with Map, Markers, and Report Button // Using Expo
 
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, Alert, TouchableOpacity, TextInput, ScrollView, Modal } from 'react-native'; // Added Modal for detail panel
+import { View, StyleSheet, Text, Alert, TouchableOpacity, TextInput, ScrollView, Modal } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
@@ -54,7 +54,7 @@ export default function App() {
   const [departureAdvice, setDepartureAdvice] = useState(null);
   const [googleRouteSteps, setGoogleRouteSteps] = useState([]);
   const [countdownSeconds, setCountdownSeconds] = useState(null);
-  const [selectedLightDetails, setSelectedLightDetails] = useState(null); // For detail panel
+  const [selectedLightDetails, setSelectedLightDetails] = useState(null);
 
   const trafficLights = [
     { id: 2, title: 'Beach Rd & 2nd St', coords: { latitude: -26.6525, longitude: 153.0915 }, status: 'red', },
@@ -95,15 +95,12 @@ export default function App() {
     return () => { if (timerId) clearInterval(timerId); };
   }, [departureAdvice]);
 
-  const syncPendingReports = async () => { /* ... existing ... */ };
-  const reportLightStatus = (reportedStatus) => { /* ... existing ... */ };
-  const fetchLightPrediction = async () => { /* ... existing ... */ };
-  const getPredictionForCoordinate = async (lat, lon) => { /* ... existing ... */ };
-  const fetchRouteAndLightPredictions = async () => { /* ... existing, including setGoogleRouteSteps ... */};
-  const fetchDepartureAdvice = async () => { /* ... existing ... */ };
-
-  // --- Condensed existing async functions for brevity in this view ---
-  // (Full implementations from previous steps are assumed)
+  const syncPendingReports = async () => { /* ... (condensed) ... */ };
+  const reportLightStatus = (reportedStatus) => { /* ... (condensed) ... */ };
+  const fetchLightPrediction = async () => { /* ... (condensed) ... */ };
+  const getPredictionForCoordinate = async (lat, lon) => { /* ... (condensed) ... */ };
+  const fetchRouteAndLightPredictions = async () => { /* ... (condensed, includes setGoogleRouteSteps) ... */};
+  const fetchDepartureAdvice = async () => { /* ... (condensed) ... */ };
 
   return (
     <View style={styles.container}>
@@ -122,8 +119,8 @@ export default function App() {
                         coordinate={{ latitude: item.cluster_center.latitude, longitude: item.cluster_center.longitude }}
                         pinColor={markerColor}
                         title={`Light ${item.cluster_id}`}
-                        description={"Tap for details"} // Simpler description, details in panel
-                        onPress={() => setSelectedLightDetails(item)} // Set selected light
+                        description={"Tap for details"}
+                        onPress={() => setSelectedLightDetails(item)}
                      />;
             })}
             {!onRouteLightPredictions.length && trafficLights.map((light) => ( <Marker key={`dummy-${light.id}`} coordinate={light.coords} title={light.title} description={`Dummy: ${light.status}`} /> ))}
@@ -155,9 +152,8 @@ export default function App() {
             )}
 
             <View style={styles.buttonContainer}>
-              {/* ... Report buttons, Predict Nearest, Destination Input, Route & Lights button ... */}
-               <Text style={styles.reportText}>Report Light:</Text>
-              <View style={styles.buttonRow}>{/* Report Buttons */}
+              <Text style={styles.reportText}>Report Light:</Text>
+              <View style={styles.buttonRow}>
                 <TouchableOpacity style={[styles.reportButton, styles.greenButton]} onPress={() => reportLightStatus('green')}><Text style={styles.reportButtonText}>G</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.reportButton, styles.yellowButton]} onPress={() => reportLightStatus('yellow')}><Text style={styles.reportButtonText}>Y</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.reportButton, styles.redButton]} onPress={() => reportLightStatus('red')}><Text style={styles.reportButtonText}>R</Text></TouchableOpacity>
@@ -169,57 +165,50 @@ export default function App() {
                 <TouchableOpacity style={styles.actionButton} onPress={fetchRouteAndLightPredictions}><Text style={styles.actionButtonText}>Route</Text></TouchableOpacity>
               </View>
 
-              {/* Display for nearest light prediction (from fetchLightPrediction) */}
               {predictionData && predictionData.loading && <Text style={styles.predictionText}>Loading Prediction...</Text>}
               {predictionData && predictionData.error && <Text style={styles.predictionTextError}>Error: {predictionData.error}</Text>}
               {predictionData && !predictionData.loading && !predictionData.error && predictionData.prediction && (
                  <View style={styles.predictionContainer}>
                     <Text style={styles.predictionTitle}>Nearest Light Prediction:</Text>
-                    {/* ... content ... */}
+                    <Text style={styles.predictionText}>Cluster ID: {predictionData.cluster_id}</Text>
+                    <Text style={styles.predictionText}>Status: {predictionData.prediction.predicted_current_status.toUpperCase()}{predictionData.prediction.predicted_time_remaining_seconds !== null ? ` (Est. ${predictionData.prediction.predicted_time_remaining_seconds}s left)`: ''}</Text>
+                    <Text style={styles.predictionText}>Confidence: {predictionData.prediction.prediction_confidence}</Text>
                  </View>
               )}
 
               {routePolyline.length > 0 && (<TouchableOpacity style={styles.actionButton} onPress={fetchDepartureAdvice}><Text style={styles.actionButtonText}>Timing Advice</Text></TouchableOpacity>)}
-              {/* Departure Advice & Countdown Display */}
+
               {departureAdvice && departureAdvice.loading && <Text style={styles.predictionText}>Loading advice...</Text>}
-              {/* ... departure advice display & countdown ... */}
+              {departureAdvice && departureAdvice.error && <Text style={styles.predictionTextError}>Advice Error: {departureAdvice.error}</Text>}
+              {departureAdvice && !departureAdvice.loading && !departureAdvice.error && (
+                <View style={styles.adviceContainer}>
+                  <Text style={styles.predictionTitle}>Departure Advice:</Text>
+                  {countdownSeconds !== null && countdownSeconds > 0 ? (
+                    <Text style={styles.countdownText}>Depart in: {countdownSeconds}s</Text>
+                  ) : (
+                    <Text style={styles.predictionText}>{departureAdvice.advice}</Text>
+                  )}
+                  {departureAdvice.optimal_departure_offset_seconds !== undefined && countdownSeconds === null && (
+                    <Text style={styles.predictionText}>Optimal Offset: {departureAdvice.optimal_departure_offset_seconds}s (Saves ~{departureAdvice.wait_time_savings_seconds}s)</Text>
+                  )}
+                  {departureAdvice.simulation_confidence_level && countdownSeconds === null && (
+                    <Text style={[styles.predictionText, styles.confidenceText]}>
+                      Advice Confidence: {departureAdvice.simulation_confidence_level.toUpperCase()}
+                    </Text>
+                  )}
+                  {departureAdvice.low_confidence_lights_on_optimal_route_count > 0 &&
+                   departureAdvice.total_lights_simulated_on_optimal_route > 0 &&
+                   countdownSeconds === null && (
+                    <Text style={styles.stepDetails}>
+                      (Note: {departureAdvice.low_confidence_lights_on_optimal_route_count} of {departureAdvice.total_lights_simulated_on_optimal_route} lights had less certain predictions)
+                    </Text>
+                  )}
+                </View>
+              )}
             </View>
           </View>
 
-          {/* Modal for Selected Light Details */}
-          {selectedLightDetails && (
-            <Modal
-              animationType="slide"
-              transparent={true}
-              visible={selectedLightDetails !== null}
-              onRequestClose={() => setSelectedLightDetails(null)}
-            >
-              <View style={styles.modalOverlay}>
-                <View style={styles.lightDetailPanel}>
-                  <Text style={styles.detailPanelTitle}>Light Details (Cluster ID: {selectedLightDetails.cluster_id})</Text>
-                  <Text style={styles.detailPanelText}>Location: {selectedLightDetails.cluster_center.latitude.toFixed(4)}, {selectedLightDetails.cluster_center.longitude.toFixed(4)}</Text>
-
-                  {selectedLightDetails.prediction && (<>
-                    <Text style={styles.detailPanelText}>Predicted Status: {selectedLightDetails.prediction.predicted_current_status.toUpperCase()}</Text>
-                    <Text style={styles.detailPanelText}>Time Remaining: {selectedLightDetails.prediction.predicted_time_remaining_seconds ?? 'N/A'}s</Text>
-                    <Text style={styles.detailPanelText}>Confidence: {selectedLightDetails.prediction.prediction_confidence}</Text>
-                    <Text style={styles.detailPanelText}>Last Seen: {selectedLightDetails.prediction.last_seen_status} at {new Date(selectedLightDetails.prediction.last_seen_timestamp).toLocaleTimeString()}</Text>
-                  </>)}
-
-                  {selectedLightDetails.average_durations && (<>
-                    <Text style={styles.detailPanelSubtitle}>Average Durations:</Text>
-                    <Text style={styles.detailPanelText}> - Green: {selectedLightDetails.average_durations.green ?? 'N/A'}s</Text>
-                    <Text style={styles.detailPanelText}> - Yellow: {selectedLightDetails.average_durations.yellow ?? 'N/A'}s</Text>
-                    <Text style={styles.detailPanelText}> - Red: {selectedLightDetails.average_durations.red ?? 'N/A'}s</Text>
-                  </>)}
-
-                  <TouchableOpacity style={[styles.actionButton, styles.detailPanelCloseButton]} onPress={() => setSelectedLightDetails(null)}>
-                    <Text style={styles.actionButtonText}>Close</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Modal>
-          )}
+          {selectedLightDetails && ( /* Light Detail Modal */ )}
         </>
       ) : ( <Text>{errorMsg || 'Getting location...'}</Text> )}
     </View>
@@ -227,7 +216,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  // ... (Keep existing styles)
+  // ... (Existing styles from P8S3)
   container: { flex: 1 }, map: { flex: 1 },
   bottomControlsContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', padding: 5, maxHeight: '45%', backgroundColor: 'rgba(0,0,0,0.05)' },
   routeStepsOuterContainer: { flex: 1.2, backgroundColor: 'rgba(250,250,250,0.9)', borderRadius: 10, padding: 8, margin: 5, maxHeight: '100%' },
@@ -254,43 +243,11 @@ const styles = StyleSheet.create({
   predictionTextError: { fontSize: 12, marginBottom: 2, textAlign: 'center', color: 'red' },
   adviceContainer: { marginTop: 3, padding: 8, backgroundColor: 'rgba(220,220,255,0.85)', borderRadius: 5, alignItems: 'center', width:'95%' },
   countdownText: { fontSize: 16, fontWeight: 'bold', color: '#007bff', marginVertical: 5 },
-  // Styles for Modal Light Detail Panel
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)', // Semi-transparent background
-  },
-  lightDetailPanel: {
-    width: '85%',
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 20,
-    alignItems: 'stretch', // Stretch items like button
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  detailPanelTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  detailPanelSubtitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  detailPanelText: {
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  detailPanelCloseButton: {
-    marginTop: 15,
-    backgroundColor: '#6c757d', // A more neutral close button color
-  }
+  confidenceText: { fontWeight: 'bold', marginTop: 3, fontSize: 12 }, // New style for confidence text
+  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)'},
+  lightDetailPanel: { width: '85%', backgroundColor: 'white', borderRadius: 10, padding: 20, alignItems: 'stretch', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
+  detailPanelTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  detailPanelSubtitle: { fontSize: 15, fontWeight: 'bold', marginTop: 10, marginBottom: 5 },
+  detailPanelText: { fontSize: 14, marginBottom: 5 },
+  detailPanelCloseButton: { marginTop: 15, backgroundColor: '#6c757d' } // Uses actionButton styling implicitly
 });

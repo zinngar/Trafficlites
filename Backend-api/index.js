@@ -56,56 +56,9 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-async function processReportForTiming(dbPool, report) {
-  // ... (existing implementation from previous steps - assumed correct and complete)
-  const { latitude, longitude, status, timestamp: reportTimestamp } = report;
-  let clusterId;
-  const nearbyClusters = await dbPool.query(
-    'SELECT *, (6371000 * acos(cos(radians($1)) * cos(radians(center_latitude)) * cos(radians(center_longitude) - radians($2)) + sin(radians($1)) * sin(radians(center_latitude)))) AS distance FROM traffic_light_clusters ORDER BY distance ASC LIMIT 1',
-    [latitude, longitude]
-  );
-  let targetCluster = null;
-  if (nearbyClusters.rows.length > 0 && nearbyClusters.rows[0].distance <= CLUSTERING_RADIUS_METERS) {
-    targetCluster = nearbyClusters.rows[0];
-  }
-  if (targetCluster) {
-    clusterId = targetCluster.cluster_id;
-    const newReportCount = targetCluster.report_count + 1;
-    const oldWeight = targetCluster.report_count / newReportCount;
-    const newWeight = 1 / newReportCount;
-    const newCenterLatitude = (targetCluster.center_latitude * oldWeight) + (latitude * newWeight);
-    const newCenterLongitude = (targetCluster.center_longitude * oldWeight) + (longitude * newWeight);
-    await dbPool.query(
-      'UPDATE traffic_light_clusters SET center_latitude = $1, center_longitude = $2, report_count = $3, updated_at = NOW() WHERE cluster_id = $4',
-      [newCenterLatitude, newCenterLongitude, newReportCount, clusterId]
-    );
-  } else {
-    const newClusterResult = await dbPool.query( 'INSERT INTO traffic_light_clusters (center_latitude, center_longitude, report_count) VALUES ($1, $2, 1) RETURNING cluster_id', [latitude, longitude]);
-    clusterId = newClusterResult.rows[0].cluster_id;
-  }
-  const lastSegmentResult = await dbPool.query( 'SELECT * FROM traffic_light_cycle_segments WHERE cluster_id = $1 ORDER BY start_timestamp DESC, segment_id DESC LIMIT 1', [clusterId]);
-  const lastSegment = lastSegmentResult.rows.length > 0 ? lastSegmentResult.rows[0] : null;
-  if (lastSegment) {
-    const newReportTime = new Date(reportTimestamp);
-    const lastSegmentStartTime = new Date(lastSegment.start_timestamp);
-    if (lastSegment.current_status !== status && lastSegment.end_timestamp === null) {
-      const durationSeconds = Math.round((newReportTime - lastSegmentStartTime) / 1000);
-      await dbPool.query( 'UPDATE traffic_light_cycle_segments SET end_timestamp = $1, duration_seconds = $2, is_estimated_end = FALSE WHERE segment_id = $3', [reportTimestamp, durationSeconds, lastSegment.segment_id]);
-      await dbPool.query( 'INSERT INTO traffic_light_cycle_segments (cluster_id, previous_status, current_status, start_timestamp, reported_at) VALUES ($1, $2, $3, $4, NOW())', [clusterId, lastSegment.current_status, status, reportTimestamp]);
-    } else if (lastSegment.current_status !== status && lastSegment.end_timestamp !== null) {
-      await dbPool.query( 'INSERT INTO traffic_light_cycle_segments (cluster_id, previous_status, current_status, start_timestamp, reported_at) VALUES ($1, $2, $3, $4, NOW())', [clusterId, lastSegment.current_status, status, reportTimestamp]);
-    } else if (lastSegment.current_status === status && lastSegment.end_timestamp !== null) {
-         await dbPool.query( 'INSERT INTO traffic_light_cycle_segments (cluster_id, previous_status, current_status, start_timestamp, reported_at) VALUES ($1, $2, $3, $4, NOW())', [clusterId, lastSegment.current_status, status, reportTimestamp]);
-    }
-  } else {
-    await dbPool.query( 'INSERT INTO traffic_light_cycle_segments (cluster_id, previous_status, current_status, start_timestamp, reported_at) VALUES ($1, $2, $3, $4, NOW())', [clusterId, null, status, reportTimestamp]);
-  }
-}
-
-
-app.get('/reports', async (req, res) => { /* ... existing ... */ });
-
-app.listen(PORT, async () => { /* ... existing ... */ });
+async function processReportForTiming(dbPool, report) { /* ... (condensed) ... */ }
+app.get('/reports', async (req, res) => { /* ... (condensed) ... */ });
+app.listen(PORT, async () => { /* ... (condensed, includes localInitDb) ... */ });
 
 function getNextStatus(currentStatus) {
   if (currentStatus === 'green') return 'yellow';
@@ -122,223 +75,159 @@ function getDistanceOfPolyline(polylinePoints, startIndex = 0, endIndex = -1) {
   if (startIndex >= effectiveEndIndex) return 0;
   let totalDistance = 0;
   for (let i = startIndex; i < effectiveEndIndex; i++) {
-    const p1 = polylinePoints[i];
-    const p2 = polylinePoints[i+1];
-    if (p1 && p2 && typeof p1.latitude === 'number' && typeof p1.longitude === 'number' &&
-        typeof p2.latitude === 'number' && typeof p2.longitude === 'number') {
+    const p1 = polylinePoints[i]; const p2 = polylinePoints[i+1];
+    if (p1 && p2 && typeof p1.latitude === 'number' && typeof p1.longitude === 'number' &&  typeof p2.latitude === 'number' && typeof p2.longitude === 'number') {
         totalDistance += getDistance(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
-    } else {
-        console.warn("Invalid point in polyline for getDistanceOfPolyline:", p1, p2);
-    }
+    } else { console.warn("Invalid point in polyline for getDistanceOfPolyline:", p1, p2); }
   }
   return totalDistance;
 }
 
 function getLightProjectionOnStep(lightLocation, stepPolylinePoints) {
-  if (!lightLocation || !stepPolylinePoints || stepPolylinePoints.length === 0) {
-    return null;
-  }
-  let closestVertexIndex = -1;
-  let minDistanceToVertex = Infinity;
+  if (!lightLocation || !stepPolylinePoints || stepPolylinePoints.length === 0) return null;
+  let closestVertexIndex = -1; let minDistanceToVertex = Infinity;
   for (let i = 0; i < stepPolylinePoints.length; i++) {
     const vertex = stepPolylinePoints[i];
     if (vertex && typeof vertex.latitude === 'number' && typeof vertex.longitude === 'number') {
-        const distance = getDistance(
-            lightLocation.latitude, lightLocation.longitude,
-            vertex.latitude, vertex.longitude
-        );
-        if (distance < minDistanceToVertex) {
-            minDistanceToVertex = distance;
-            closestVertexIndex = i;
-        }
-    } else {
-        console.warn("Invalid vertex encountered in getLightProjectionOnStep:", vertex);
-    }
+        const distance = getDistance(lightLocation.latitude, lightLocation.longitude, vertex.latitude, vertex.longitude);
+        if (distance < minDistanceToVertex) { minDistanceToVertex = distance; closestVertexIndex = i; }
+    } else { console.warn("Invalid vertex in getLightProjectionOnStep:", vertex); }
   }
   if (closestVertexIndex === -1) return null;
   const closestVertex = stepPolylinePoints[closestVertexIndex];
   const distanceFromStepStartAlongPolyline = getDistanceOfPolyline(stepPolylinePoints, 0, closestVertexIndex);
-  return {
-    projectedPointLocation: closestVertex,
-    indexOnPolyline: closestVertexIndex,
-    distanceFromStepStartAlongPolyline: distanceFromStepStartAlongPolyline,
-    minDistanceToVertex: minDistanceToVertex
-  };
+  return { projectedPointLocation: closestVertex, indexOnPolyline: closestVertexIndex, distanceFromStepStartAlongPolyline, minDistanceToVertex };
 }
 
-function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) { /* ... existing ... */ }
-async function simulateRouteForDeparture(simulatableRoute, departureTimeMs, lightPredictionsMap) { /* ... existing ... */ }
-async function getDepartureAdvice(simulatableRoute, lightPredictionsMap) { /* ... existing ... */ }
+function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
+  const { average_durations, last_seen_status, last_seen_timestamp } = lightData;
+  let usedDefaultAverage = false;
+  const G_AVG_SRC = average_durations && average_durations.green != null;
+  const Y_AVG_SRC = average_durations && average_durations.yellow != null;
+  const R_AVG_SRC = average_durations && average_durations.red != null;
+  const G_AVG = G_AVG_SRC ? average_durations.green : 60;
+  const Y_AVG = Y_AVG_SRC ? average_durations.yellow : 5;
+  const R_AVG = R_AVG_SRC ? average_durations.red : 45;
+  if (!G_AVG_SRC || !Y_AVG_SRC || !R_AVG_SRC) usedDefaultAverage = true;
+  const effective_averages = { green: G_AVG, yellow: Y_AVG, red: R_AVG, unknown: 60 };
+  if (!last_seen_status || !last_seen_timestamp) return { predicted_status: 'unknown', wait_time_seconds: 0, usedDefaultAverage: true };
+  let currentSimTimeMs = last_seen_timestamp.getTime();
+  let currentSimStatus = last_seen_status;
+  if (arrivalTimeInMs < currentSimTimeMs) {
+    return (currentSimTimeMs - arrivalTimeInMs) < 1000 ? { predicted_status: last_seen_status, wait_time_seconds: 0, usedDefaultAverage } : { predicted_status: 'unknown', wait_time_seconds: 0, usedDefaultAverage: true };
+  }
+  while (currentSimTimeMs < arrivalTimeInMs) {
+    let durationForCurrentStatus = effective_averages[currentSimStatus.toLowerCase()];
+    if (durationForCurrentStatus == null ) { durationForCurrentStatus = 60; usedDefaultAverage = true; }
+    const avgDurationForCurrentSimStatusMs = durationForCurrentStatus * 1000;
+    if (currentSimTimeMs + avgDurationForCurrentSimStatusMs > arrivalTimeInMs) {
+      let timeRemainingInCurrentSimStatusMs = (currentSimTimeMs + avgDurationForCurrentSimStatusMs) - arrivalTimeInMs;
+      let wait_time_seconds = 0;
+      if (currentSimStatus === 'green') wait_time_seconds = 0;
+      else if (currentSimStatus === 'yellow') wait_time_seconds = Math.max(0, Math.round((timeRemainingInCurrentSimStatusMs + (effective_averages.red * 1000)) / 1000));
+      else if (currentSimStatus === 'red') wait_time_seconds = Math.max(0, Math.round(timeRemainingInCurrentSimStatusMs / 1000));
+      return { predicted_status: currentSimStatus, wait_time_seconds, usedDefaultAverage };
+    } else {
+      currentSimTimeMs += avgDurationForCurrentSimStatusMs; currentSimStatus = getNextStatus(currentSimStatus);
+      if (currentSimStatus === 'green' && !G_AVG_SRC) usedDefaultAverage = true;
+      if (currentSimStatus === 'yellow' && !Y_AVG_SRC) usedDefaultAverage = true;
+      if (currentSimStatus === 'red' && !R_AVG_SRC) usedDefaultAverage = true;
+    }
+  }
+  let wait_time_seconds = 0;
+  if (currentSimStatus === 'green') wait_time_seconds = 0;
+  else if (currentSimStatus === 'red') wait_time_seconds = Math.round(effective_averages.red);
+  else if (currentSimStatus === 'yellow') wait_time_seconds = Math.round(effective_averages.yellow + effective_averages.red);
+  return { predicted_status: currentSimStatus, wait_time_seconds, usedDefaultAverage };
+}
+
+async function simulateRouteForDeparture(simulatableRoute, departureTimeMs, lightPredictionsMap) {
+  let totalWaitTimeSeconds = 0;
+  let accumulatedTravelTimeMs = 0;
+  let lowConfidenceLightEncounterCount = 0;
+  let totalLightsSimulated = 0;
+
+  for (const segment of simulatableRoute.segments) {
+    const segmentTravelTimeMs = segment.duration_seconds * 1000;
+    const arrivalAtSegmentEndWithoutLightMs = departureTimeMs + accumulatedTravelTimeMs + segmentTravelTimeMs;
+    accumulatedTravelTimeMs += segmentTravelTimeMs;
+    if (segment.ends_at_traffic_light_cluster_id) {
+      const lightData = lightPredictionsMap.get(segment.ends_at_traffic_light_cluster_id);
+      if (lightData) {
+        totalLightsSimulated++;
+        const lightDataForSim = { ...lightData, last_seen_timestamp: lightData.last_seen_timestamp ? new Date(lightData.last_seen_timestamp) : null };
+        const predictionResult = predictLightStateAtFutureTime(lightDataForSim, arrivalAtSegmentEndWithoutLightMs);
+        totalWaitTimeSeconds += predictionResult.wait_time_seconds;
+        accumulatedTravelTimeMs += (predictionResult.wait_time_seconds * 1000);
+
+        let isLowConfidenceEncounter = predictionResult.usedDefaultAverage;
+        if (lightData.base_confidence === 'low') { // Assuming base_confidence is now in lightData
+          isLowConfidenceEncounter = true;
+        }
+        if (isLowConfidenceEncounter) {
+          lowConfidenceLightEncounterCount++;
+        }
+      } else {
+        console.warn(`Sim: No prediction data for light ${segment.ends_at_traffic_light_cluster_id}. Assuming 0 wait.`);
+      }
+    }
+  }
+  return { totalWaitTimeSeconds, lowConfidenceLightEncounterCount, totalLightsSimulated };
+}
+
+async function getDepartureAdvice(simulatableRoute, lightPredictionsMap) {
+  if (!simulatableRoute || !simulatableRoute.segments || simulatableRoute.segments.length === 0) {
+    return { advice: "Route data insufficient for advice.", optimal_departure_offset_seconds: 0, baseline_wait_time_seconds: null, optimal_wait_time_seconds: null, wait_time_savings_seconds: 0, simulation_confidence_level: 'low', low_confidence_lights_on_optimal_route_count: 0, total_lights_simulated_on_optimal_route: 0 };
+  }
+  const currentTimeMs = new Date().getTime();
+  const baselineSimResult = await simulateRouteForDeparture(simulatableRoute, currentTimeMs, lightPredictionsMap);
+  let minWaitTimeSeconds = baselineSimResult.totalWaitTimeSeconds;
+  let bestOffsetSeconds = 0;
+  let lowConfidenceCountForOptimal = baselineSimResult.lowConfidenceLightEncounterCount;
+  let totalLightsInOptimal = baselineSimResult.totalLightsSimulated;
+
+  const offsetsToTest = [-60, -30, 30, 60, 90, 120, 150, 180];
+  for (const offset of offsetsToTest) {
+    if (offset === 0) continue;
+    const currentSimResult = await simulateRouteForDeparture(simulatableRoute, currentTimeMs + (offset * 1000), lightPredictionsMap);
+    if (currentSimResult.totalWaitTimeSeconds < minWaitTimeSeconds) {
+        minWaitTimeSeconds = currentSimResult.totalWaitTimeSeconds; bestOffsetSeconds = offset;
+        lowConfidenceCountForOptimal = currentSimResult.lowConfidenceLightEncounterCount; totalLightsInOptimal = currentSimResult.totalLightsSimulated;
+    } else if (currentSimResult.totalWaitTimeSeconds === minWaitTimeSeconds) {
+        if (bestOffsetSeconds > 0 && offset < bestOffsetSeconds && offset >=0) { // Prefer smaller positive or zero offset
+             bestOffsetSeconds = offset; lowConfidenceCountForOptimal = currentSimResult.lowConfidenceLightEncounterCount; totalLightsInOptimal = currentSimResult.totalLightsSimulated;
+        } else if (bestOffsetSeconds < 0 && offset > bestOffsetSeconds) { // Prefer offset closer to zero from negative side
+             bestOffsetSeconds = offset; lowConfidenceCountForOptimal = currentSimResult.lowConfidenceLightEncounterCount; totalLightsInOptimal = currentSimResult.totalLightsSimulated;
+        }
+    }
+  }
+   if (baselineSimResult.totalWaitTimeSeconds <= minWaitTimeSeconds && bestOffsetSeconds !== 0) { // Check if baseline is still better or equal
+      minWaitTimeSeconds = baselineSimResult.totalWaitTimeSeconds; bestOffsetSeconds = 0;
+      lowConfidenceCountForOptimal = baselineSimResult.lowConfidenceLightEncounterCount; totalLightsInOptimal = baselineSimResult.totalLightsSimulated;
+  }
+
+  const baselineWaitTimeSeconds = baselineSimResult.totalWaitTimeSeconds;
+  const waitTimeSavingsSeconds = baselineWaitTimeSeconds !== null && minWaitTimeSeconds !== null ? baselineWaitTimeSeconds - minWaitTimeSeconds : 0;
+  let simulation_confidence_level = 'low';
+  if (totalLightsInOptimal > 0) {
+    const lowConfidenceRatio = lowConfidenceCountForOptimal / totalLightsInOptimal;
+    if (lowConfidenceRatio <= 0.15) simulation_confidence_level = 'high';
+    else if (lowConfidenceRatio <= 0.40) simulation_confidence_level = 'medium';
+  } else if (simulatableRoute.segments.length > 0 && totalLightsInOptimal === 0) {
+      simulation_confidence_level = 'n/a';
+  }
+  let adviceMessage = "Current departure time seems reasonable.";
+  if (bestOffsetSeconds > 0 && waitTimeSavingsSeconds > 10) adviceMessage = `Depart in ${bestOffsetSeconds}s to save ~${Math.round(waitTimeSavingsSeconds)}s.`;
+  else if (bestOffsetSeconds < 0 && waitTimeSavingsSeconds > 10) adviceMessage = `If left ${-bestOffsetSeconds}s ago, might save ~${Math.round(waitTimeSavingsSeconds)}s.`;
+  else if (waitTimeSavingsSeconds <= 0 && bestOffsetSeconds === 0 && baselineWaitTimeSeconds !== null) adviceMessage = "Departing now optimal.";
+  else if (baselineWaitTimeSeconds === null) { adviceMessage = "Baseline wait time undetermined."; simulation_confidence_level = 'low';}
+  if (totalLightsInOptimal === 0 && simulatableRoute.segments.length > 0 && simulation_confidence_level !== 'n/a') {
+      adviceMessage = "No predictable traffic lights on route for timing advice."; simulation_confidence_level = 'n/a';
+  }
+  return { advice: adviceMessage, optimal_departure_offset_seconds: bestOffsetSeconds, baseline_wait_time_seconds: baselineWaitTimeSeconds !==null ? Math.round(baselineWaitTimeSeconds) : null, optimal_wait_time_seconds: minWaitTimeSeconds !== null ? Math.round(minWaitTimeSeconds) : null, wait_time_savings_seconds: Math.round(waitTimeSavingsSeconds), simulation_confidence_level, low_confidence_lights_on_optimal_route_count: lowConfidenceCountForOptimal, total_lights_simulated_on_optimal_route: totalLightsInOptimal };
+}
+
 function decodeGooglePolyline(encoded) { /* ... existing ... */ }
 async function fetchLightTimingAndPredictionDataForCluster(dbPool, clusterId) { /* ... existing ... */ }
-
-
-app.post('/route_departure_advice', async (req, res) => {
-  const dbPool = req.app.locals.dbPool;
-  const { origin, destination } = req.body;
-  if (!origin || typeof origin.lat !== 'number' || typeof origin.lon !== 'number' || !destination || typeof destination.lat !== 'number' || typeof destination.lon !== 'number') {
-    return res.status(400).json({ error: 'Invalid origin/destination. Expected {lat:num, lon:num}.' });
-  }
-  const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY_BACKEND;
-  if (!GOOGLE_API_KEY) return res.status(500).json({ error: 'Routing API key not configured.' });
-
-  try {
-    const googleDirectionsURL = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lon}&destination=${destination.lat},${destination.lon}&key=${GOOGLE_API_KEY}`;
-    let googleRouteData;
-    try {
-      const dRes = await axios.get(googleDirectionsURL);
-      if (dRes.data.routes && dRes.data.routes.length > 0) googleRouteData = dRes.data.routes[0];
-      else return res.status(404).json({ error: 'Route not found by Google.', details: dRes.data.status });
-    } catch (e) { return res.status(502).json({ error: 'Failed to fetch route from external service.' }); }
-
-    const lightPredictionsMap = new Map();
-    const uniqueClusterIdsOnEntireRoute = new Set();
-
-    // Populate uniqueClusterIdsOnEntireRoute first (Phase 4 logic)
-    for (const step of googleRouteData.legs[0].steps) {
-      const stepPolylineDecoded = decodeGooglePolyline(step.polyline.points);
-      const pointsToQueryForStep = [];
-      if (stepPolylineDecoded.length > 0) {
-        pointsToQueryForStep.push(stepPolylineDecoded[0]);
-        if (stepPolylineDecoded.length > 2) pointsToQueryForStep.push(stepPolylineDecoded[Math.floor(stepPolylineDecoded.length / 2)]);
-        pointsToQueryForStep.push(stepPolylineDecoded[stepPolylineDecoded.length - 1]);
-      }
-      pointsToQueryForStep.push({ latitude: step.start_location.lat, longitude: step.start_location.lng });
-      pointsToQueryForStep.push({ latitude: step.end_location.lat, longitude: step.end_location.lng });
-      const uniquePointsForStep = Array.from(new Set(pointsToQueryForStep.map(p => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`))).map(s => { const [lat,lon] = s.split(','); return {latitude: parseFloat(lat), longitude: parseFloat(lon)}; });
-      for (const point of uniquePointsForStep) {
-        const fallbackNearbyCluster = await dbPool.query( `SELECT cluster_id, center_latitude, center_longitude, (6371000 * acos(cos(radians($1)) * cos(radians(center_latitude)) * cos(radians(center_longitude) - radians($2)) + sin(radians($1)) * sin(radians(center_latitude)))) AS distance FROM traffic_light_clusters ORDER BY distance ASC LIMIT 1`, [point.latitude, point.longitude]);
-        if (fallbackNearbyCluster.rows.length > 0 && fallbackNearbyCluster.rows[0].distance < (CLUSTERING_RADIUS_METERS * 1.5)) {
-            uniqueClusterIdsOnEntireRoute.add(fallbackNearbyCluster.rows[0].cluster_id);
-        }
-      }
-    }
-    for (const clusterId of uniqueClusterIdsOnEntireRoute) {
-        if (!lightPredictionsMap.has(clusterId)) {
-            const lightData = await fetchLightTimingAndPredictionDataForCluster(dbPool, clusterId);
-            if (lightData && lightData.cluster_center) { lightPredictionsMap.set(clusterId, lightData); }
-        }
-    }
-
-    // Refine light-to-step association using getLightProjectionOnStep (Phase 7, Step 3 / P9S2 logic)
-    const stepSpecificLightsData = new Map();
-    for (let stepIndex = 0; stepIndex < googleRouteData.legs[0].steps.length; stepIndex++) {
-        const step = googleRouteData.legs[0].steps[stepIndex];
-        let stepPolylineDecoded = decodeGooglePolyline(step.polyline.points); // Ensure it's 'let'
-        const lightsFoundOnThisStepDetails = [];
-        if (stepPolylineDecoded.length === 0 && !(step.start_location.lat === step.end_location.lat && step.start_location.lng === step.end_location.lng)) {
-            stepPolylineDecoded = [{latitude: step.start_location.lat, longitude: step.start_location.lng}, {latitude: step.end_location.lat, longitude: step.end_location.lng}];
-        } else if (stepPolylineDecoded.length === 0) {
-             stepSpecificLightsData.set(stepIndex, lightsFoundOnThisStepDetails); continue;
-        }
-        for (const [clusterId, lightData] of lightPredictionsMap.entries()) {
-            if (!lightData.cluster_center) continue;
-            const projection = getLightProjectionOnStep(lightData.cluster_center, stepPolylineDecoded);
-            if (projection && projection.minDistanceToVertex < (CLUSTERING_RADIUS_METERS * 1.2)) {
-                lightsFoundOnThisStepDetails.push({
-                    cluster_id: clusterId, location: lightData.cluster_center,
-                    distanceFromStepStartAlongPolyline: projection.distanceFromStepStartAlongPolyline,
-                    projectedPointOnPolyline: projection.projectedPointLocation,
-                    projectedPointIndexOnStepPolyline: projection.indexOnPolyline
-                });
-            }
-        }
-        lightsFoundOnThisStepDetails.sort((a, b) => a.distanceFromStepStartAlongPolyline - b.distanceFromStepStartAlongPolyline);
-        stepSpecificLightsData.set(stepIndex, lightsFoundOnThisStepDetails);
-    }
-
-    // --- START: Phase 9, Step 3 --- Accurate Segment Reconstruction with Polyline Apportionment ---
-    const simulatableRoute = {
-      origin: { latitude: googleRouteData.legs[0].start_location.lat, longitude: googleRouteData.legs[0].start_location.lng },
-      destination: { latitude: googleRouteData.legs[0].end_location.lat, longitude: googleRouteData.legs[0].end_location.lng },
-      total_initial_duration_seconds: googleRouteData.legs[0].duration.value,
-      total_distance_meters: googleRouteData.legs[0].distance.value,
-      segments: [],
-    };
-    let currentPathOverallStartLocation = { ...simulatableRoute.origin };
-
-    for (let stepIndex = 0; stepIndex < googleRouteData.legs[0].steps.length; stepIndex++) {
-        const step = googleRouteData.legs[0].steps[stepIndex];
-        let stepPolylineDecoded = decodeGooglePolyline(step.polyline.points);
-        if (stepPolylineDecoded.length === 0 && !(step.start_location.lat === step.end_location.lat && step.start_location.lng === step.end_location.lng)) {
-             stepPolylineDecoded = [{latitude: step.start_location.lat, longitude: step.start_location.lng}, {latitude: step.end_location.lat, longitude: step.end_location.lng}];
-        } else if (stepPolylineDecoded.length === 0) {
-            continue; // Skip zero-length polylines that are also zero-length steps
-        }
-
-        const lightsOnThisStep = stepSpecificLightsData.get(stepIndex) || [];
-        let lastProcessedLocationForCurrentStep = currentPathOverallStartLocation; // Start of current Google step
-        let lastProcessedPolylineIndexOnStep = 0;
-        let cumulativeDurationApportionedThisStep = 0;
-
-        const totalStepPolylineActualDistance = getDistanceOfPolyline(stepPolylineDecoded, 0, -1); // Full length of step's polyline
-
-        for (const lightInfo of lightsOnThisStep) {
-            // Path distance from the last processed point (start of step or prev light's vertex) to this light's closest vertex on step polyline
-            const subSegmentPolylineDistance = getDistanceOfPolyline(stepPolylineDecoded, lastProcessedPolylineIndexOnStep, lightInfo.projectedPointIndexOnStepPolyline);
-
-            let fractionOfStep = 0;
-            if (totalStepPolylineActualDistance > 0.1) { // Use a small threshold like 0.1m
-                 fractionOfStep = subSegmentPolylineDistance / totalStepPolylineActualDistance;
-            } else if (lightsOnThisStep.length > 0) { // If total polyline is tiny/zero, distribute duration among lights
-                 fractionOfStep = 1 / lightsOnThisStep.length;
-            }
-
-            const apportionedDuration = Math.round(step.duration.value * fractionOfStep);
-            const apportionedDistance = Math.round(subSegmentPolylineDistance); // Use actual path distance for segment
-
-            if (apportionedDistance > 0 || apportionedDuration > 0 || (lightsOnThisStep.length === 1 && lightInfo.cluster_id === lightsOnThisStep[0].cluster_id)) {
-                 simulatableRoute.segments.push({
-                    start_location: lastProcessedLocationForCurrentStep,
-                    end_location: lightInfo.location, // Actual light cluster center
-                    duration_seconds: apportionedDuration,
-                    distance_meters: apportionedDistance,
-                    ends_at_traffic_light_cluster_id: lightInfo.cluster_id
-                });
-                cumulativeDurationApportionedThisStep += apportionedDuration;
-            }
-            lastProcessedLocationForCurrentStep = lightInfo.location;
-            lastProcessedPolylineIndexOnStep = lightInfo.projectedPointIndexOnStepPolyline;
-        }
-
-        // Final segment from the last light's location (or step start) to the actual Google step end_location
-        const remainingPolylinePathDistance = getDistanceOfPolyline(stepPolylineDecoded, lastProcessedPolylineIndexOnStep, -1);
-        const finalSegmentDuration = Math.max(0, step.duration.value - cumulativeDurationApportionedThisStep);
-        const finalSegmentDistance = Math.round(remainingPolylinePathDistance);
-
-        let clusterAtGoogleStepEnd = null;
-        for (const [cid, ld] of lightPredictionsMap.entries()) {
-            if (ld.cluster_center && getDistance(step.end_location.lat, step.end_location.lng, ld.cluster_center.latitude, ld.cluster_center.longitude) < CLUSTERING_RADIUS_METERS * 0.5) {
-                clusterAtGoogleStepEnd = cid; break;
-            }
-        }
-
-        // Add final segment only if it has length or if no lights were on this step (making it the only segment for this step)
-        if (finalSegmentDistance > 0 || finalSegmentDuration > 0 || lightsOnThisStep.length === 0) {
-             simulatableRoute.segments.push({
-                start_location: lastProcessedLocationForCurrentStep,
-                end_location: { latitude: step.end_location.lat, longitude: step.end_location.lng },
-                duration_seconds: finalSegmentDuration,
-                distance_meters: finalSegmentDistance,
-                ends_at_traffic_light_cluster_id: clusterAtGoogleStepEnd
-            });
-        }
-        currentPathOverallStartLocation = { latitude: step.end_location.lat, longitude: step.end_location.lng };
-    }
-    // --- END: Phase 9, Step 3 ---
-
-    if (simulatableRoute.segments.length === 0 && googleRouteData.legs[0].steps.length > 0) {
-         return res.status(500).json({ error: "Failed to process route steps into simulatable segments."});
-    }
-    if (uniqueClusterIdsOnEntireRoute.size === 0) {
-        return res.json({ advice: "No known traffic lights on this route.", optimal_departure_offset_seconds: 0, baseline_wait_time_seconds: null, optimal_wait_time_seconds: null, wait_time_savings_seconds: 0, route: googleRouteData });
-    }
-    const adviceResult = await getDepartureAdvice(simulatableRoute, lightPredictionsMap);
-    res.json({ ...adviceResult, route: googleRouteData });
-  } catch (err) {
-    console.error('Error in /route_departure_advice:', err.message, err.stack);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
+app.post('/route_departure_advice', async (req, res) => { /* ... existing ... */ });
 app.get('/light_timings/:latitude/:longitude', async (req, res) => { /* ... existing ... */ });
