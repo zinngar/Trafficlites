@@ -492,12 +492,16 @@ async function fetchLightTimingAndPredictionDataForCluster(dbPool, clusterId) {
 
         const lastSegment = lastSegmentResult.rows.length > 0 ? lastSegmentResult.rows[0] : null;
 
+        // Fetch cluster center coordinates
+        const clusterDetailsResult = await dbPool.query('SELECT center_latitude, center_longitude FROM traffic_light_clusters WHERE cluster_id = $1', [clusterId]);
+        const cluster_center = clusterDetailsResult.rows.length > 0 ? { latitude: clusterDetailsResult.rows[0].center_latitude, longitude: clusterDetailsResult.rows[0].center_longitude } : null;
+
         return {
-            cluster_id: clusterId, // Good to have for mapping
+            cluster_id: clusterId,
             average_durations,
-            // Data needed by predictLightStateAtFutureTime
             last_seen_status: lastSegment ? lastSegment.current_status : null,
-            last_seen_timestamp: lastSegment ? new Date(lastSegment.start_timestamp) : null
+            last_seen_timestamp: lastSegment ? new Date(lastSegment.start_timestamp) : null,
+            cluster_center
         };
     } catch(e) {
         console.error(`Error fetching light data for cluster ${clusterId}:`, e);
@@ -537,78 +541,142 @@ app.post('/route_departure_advice', async (req, res) => {
       return res.status(502).json({ error: 'Failed to fetch route from external routing service.' });
     }
 
-    // 2. Construct SimulatableRoute
+    // 2. Construct SimulatableRoute & Identify Lights by processing each Google Step
     const simulatableRoute = {
       origin: { latitude: googleRouteData.legs[0].start_location.lat, longitude: googleRouteData.legs[0].start_location.lng },
       destination: { latitude: googleRouteData.legs[0].end_location.lat, longitude: googleRouteData.legs[0].end_location.lng },
       total_initial_duration_seconds: googleRouteData.legs[0].duration.value,
       total_distance_meters: googleRouteData.legs[0].distance.value,
-      segments: [], // This will be populated based on Google steps and our lights
+      segments: [], // To be accurately populated in the next plan step (Phase 4, Step 3)
     };
 
     const lightPredictionsMap = new Map(); // cluster_id -> lightData for simulation
-    const allRoutePolylinePoints = decodeGooglePolyline(googleRouteData.overview_polyline.points);
-    let accumulatedDurationSeconds = 0;
+    const uniqueClusterIdsOnEntireRoute = new Set(); // Collect all unique lights on the route
 
-    // More robust light identification and segment creation:
-    // Iterate through Google's route steps. For each step, check for lights along its path.
+    console.log(`Processing ${googleRouteData.legs[0].steps.length} Google steps for light identification...`);
+
     for (const step of googleRouteData.legs[0].steps) {
-        const stepStartLat = step.start_location.lat;
-        const stepStartLon = step.start_location.lng;
-        const stepEndLat = step.end_location.lat;
-        const stepEndLon = step.end_location.lng;
-        const stepDurationSeconds = step.duration.value;
+      const stepPolylineDecoded = decodeGooglePolyline(step.polyline.points);
+      const pointsToQueryForStep = [];
 
-        // Simplified: Check midpoint of the step for a nearby light cluster
-        // A production system would sample along the step's polyline or use spatial queries.
-        const midLat = (stepStartLat + stepEndLat) / 2;
-        const midLon = (stepStartLon + stepEndLon) / 2;
+      // Add start, mid (if exists), and end points of the step's own polyline
+      if (stepPolylineDecoded.length > 0) {
+        pointsToQueryForStep.push(stepPolylineDecoded[0]);
+        if (stepPolylineDecoded.length > 2) {
+          pointsToQueryForStep.push(stepPolylineDecoded[Math.floor(stepPolylineDecoded.length / 2)]);
+        }
+        pointsToQueryForStep.push(stepPolylineDecoded[stepPolylineDecoded.length - 1]);
+      }
+      // Also explicitly add Google's start/end for the step, as polyline might be simplified
+      pointsToQueryForStep.push({ latitude: step.start_location.lat, longitude: step.start_location.lng });
+      pointsToQueryForStep.push({ latitude: step.end_location.lat, longitude: step.end_location.lng });
 
+      // Remove duplicate points before querying
+      const uniquePointsForStep = Array.from(new Set(pointsToQueryForStep.map(p => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)))
+                                   .map(s => { const [lat,lon] = s.split(','); return {latitude: parseFloat(lat), longitude: parseFloat(lon)}; });
+
+      for (const point of uniquePointsForStep) {
         const nearbyClusterResult = await dbPool.query(
-           `SELECT cluster_id
-            FROM traffic_light_clusters,
-                 (SELECT $1::float AS lat, $2::float AS lon) AS search_point
-            ORDER BY ST_Distance(
-                ST_SetSRID(ST_MakePoint(center_longitude, center_latitude), 4326)::geography,
-                ST_SetSRID(ST_MakePoint(search_point.lon, search_point.lat), 4326)::geography
-            ) ASC
-            LIMIT 1`, // This query requires PostGIS ST_Distance, ST_MakePoint, ST_SetSRID.
-                      // If PostGIS is not available, fallback to Haversine in app or simpler DB query.
-                      // For now, using Haversine-like logic as before for consistency:
-        // [midLat, midLon] // Parameters for the PostGIS version
+          `SELECT cluster_id
+           FROM traffic_light_clusters
+           ORDER BY ST_Distance(
+             ST_SetSRID(ST_MakePoint(center_longitude, center_latitude), 4326)::geography,
+             ST_SetSRID(ST_MakePoint($2::float, $1::float), 4326)::geography
+           ) ASC
+           LIMIT 1`,
+          [point.latitude, point.longitude]
         );
-        // Fallback to Haversine if PostGIS not used:
-        const fallbackNearbyCluster = await dbPool.query(
-             `SELECT cluster_id, (6371000 * acos(cos(radians($1)) * cos(radians(center_latitude)) * cos(radians(center_longitude) - radians($2)) + sin(radians($1)) * sin(radians(center_latitude)))) AS distance
-              FROM traffic_light_clusters ORDER BY distance ASC LIMIT 1`,
-            [midLat, midLon]
-        );
+        // Using PostGIS version for this query as it's more accurate for "distance to point".
+        // If PostGIS is not available, the Haversine version would be:
+        // const nearbyClusterResult = await dbPool.query(
+        //      `SELECT cluster_id, (6371000 * acos(cos(radians($1)) * cos(radians(center_latitude)) * cos(radians(center_longitude) - radians($2)) + sin(radians($1)) * sin(radians(center_latitude)))) AS distance
+        //       FROM traffic_light_clusters ORDER BY distance ASC LIMIT 1`,
+        //     [point.latitude, point.longitude]
+        // );
+        // if (nearbyClusterResult.rows.length > 0 && nearbyClusterResult.rows[0].distance < (CLUSTERING_RADIUS_METERS * 1.5)) {
+        //     uniqueClusterIdsOnEntireRoute.add(nearbyClusterResult.rows[0].cluster_id);
+        // }
 
-        let lightClusterIdForThisSegmentEnd = null;
-        if (fallbackNearbyCluster.rows.length > 0 && fallbackNearbyCluster.rows[0].distance < CLUSTERING_RADIUS_METERS * 1.5) { // Wider radius for step matching
-            lightClusterIdForThisSegmentEnd = fallbackNearbyCluster.rows[0].cluster_id;
-            if (!lightPredictionsMap.has(lightClusterIdForThisSegmentEnd)) {
-                const lightData = await fetchLightTimingAndPredictionDataForCluster(dbPool, lightClusterIdForThisSegmentEnd);
-                if (lightData) {
-                    lightPredictionsMap.set(lightClusterIdForThisSegmentEnd, lightData);
+        // Assuming PostGIS query was used, and we need to check distance.
+        // The PostGIS query above doesn't return distance directly in this simplified form.
+        // For now, let's assume if a cluster is returned, it's "close enough" for this step.
+        // A more robust query would include `WHERE ST_DWithin(...)`.
+        // For this iteration, we'll use the Haversine fallback for distance check.
+        if (nearbyClusterResult.rows.length > 0) {
+            const clusterCandidate = nearbyClusterResult.rows[0];
+            // Need to fetch its coordinates to calculate Haversine distance if not using PostGIS ST_DWithin
+            const clusterDetails = await dbPool.query('SELECT center_latitude, center_longitude FROM traffic_light_clusters WHERE cluster_id = $1', [clusterCandidate.cluster_id]);
+            if (clusterDetails.rows.length > 0) {
+                const dist = getDistance(point.latitude, point.longitude, clusterDetails.rows[0].center_latitude, clusterDetails.rows[0].center_longitude);
+                if (dist < (CLUSTERING_RADIUS_METERS * 1.5)) { // Check if this cluster is close enough to the point on step
+                    uniqueClusterIdsOnEntireRoute.add(clusterCandidate.cluster_id);
+                }
+            }
+        }
+      }
+    }
+
+    console.log(`Found ${uniqueClusterIdsOnEntireRoute.size} unique traffic light clusters along the entire route.`);
+
+    // Fetch prediction parameters for all unique clusters found
+    for (const clusterId of uniqueClusterIdsOnEntireRoute) {
+        if (!lightPredictionsMap.has(clusterId)) {
+            const lightData = await fetchLightTimingAndPredictionDataForCluster(dbPool, clusterId);
+            if (lightData) {
+                lightPredictionsMap.set(clusterId, lightData);
+            }
+        }
+    }
+
+    // 3. Reconstruct simulatableRoute.segments from Google steps,
+    //    identifying if a step ENDS at one of our known lights.
+    googleRouteData.legs[0].steps.forEach(step => {
+        let clusterIdAtStepEnd = null;
+        const stepEndLoc = { latitude: step.end_location.lat, longitude: step.end_location.lng };
+
+        for (const [clusterId, lightData] of lightPredictionsMap.entries()) {
+            if (lightData.cluster_center) {
+                const distanceToLight = getDistance(
+                    stepEndLoc.latitude, stepEndLoc.longitude,
+                    lightData.cluster_center.latitude, lightData.cluster_center.longitude
+                );
+                // If the end of a Google Step is very close to a known light cluster center
+                if (distanceToLight < CLUSTERING_RADIUS_METERS * 0.5) { // Use a tighter radius for exact end match
+                    clusterIdAtStepEnd = clusterId;
+                    break;
                 }
             }
         }
 
         simulatableRoute.segments.push({
-            start_location: { latitude: stepStartLat, longitude: stepStartLon },
-            end_location: { latitude: stepEndLat, longitude: stepEndLon },
-            duration_seconds: stepDurationSeconds,
+            start_location: { latitude: step.start_location.lat, longitude: step.start_location.lng },
+            end_location: stepEndLoc,
+            duration_seconds: step.duration.value,
             distance_meters: step.distance.value,
-            ends_at_traffic_light_cluster_id: lightClusterIdForThisSegmentEnd
+            ends_at_traffic_light_cluster_id: clusterIdAtStepEnd
         });
-        accumulatedDurationSeconds += stepDurationSeconds;
+    });
+
+    // Ensure segments are not empty if google steps existed.
+    if (googleRouteData.legs[0].steps.length > 0 && simulatableRoute.segments.length === 0) {
+        console.warn("Warning: Google steps existed but no simulatable segments were created.");
+        // This might indicate an issue or a route with no identifiable structure for simulation.
+        // Fallback or return error:
+        return res.status(500).json({ error: "Failed to process route steps for simulation."});
     }
 
 
-    if (lightPredictionsMap.size === 0) {
-        return res.json({
-            advice: "No known traffic lights with timing data found on this route to provide advice.",
+    if (lightPredictionsMap.size === 0 && simulatableRoute.segments.length > 0) { // Check if any lights were identified for the map
+        // This means lights were identified by sampling step polylines in previous step, but none were at step ends.
+        // The simulation will run but might not hit any lights if `ends_at_traffic_light_cluster_id` is always null.
+        // Or, if uniqueClusterIdsOnEntireRoute was empty, then lightPredictionsMap will be empty.
+         console.log("No lights with prediction data were mapped to step ends for simulation, or no lights on route.");
+         // We can still proceed, getDepartureAdvice will likely return baseline advice.
+    }
+
+    if (uniqueClusterIdsOnEntireRoute.size === 0) { // No lights found on route at all from previous step
+         return res.json({
+            advice: "No known traffic lights found on this route to provide advice.",
             optimal_departure_offset_seconds: 0,
             baseline_wait_time_seconds: null,
             optimal_wait_time_seconds: null,
