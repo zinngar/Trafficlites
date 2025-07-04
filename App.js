@@ -6,14 +6,71 @@ import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
 
+import { View, StyleSheet, Text, Alert, TouchableOpacity, TextInput } from 'react-native'; // Added TextInput
+import MapView, { Marker, Polyline } from 'react-native-maps'; // Added Polyline
+import * as Location from 'expo-location';
+import * as SQLite from 'expo-sqlite';
+
 // Open or create a database file
 const db = SQLite.openDatabase('local_reports.db');
+
+// =====================================================================================
+// IMPORTANT: GOOGLE MAPS API KEY REQUIRED FOR ROUTING
+// -------------------------------------------------------------------------------------
+// To use the route fetching functionality, you MUST obtain a Google Maps Directions API
+// key and replace the placeholder below.
+// 1. Go to Google Cloud Console (https://console.cloud.google.com/).
+// 2. Create a project or select an existing one.
+// 3. Enable the "Directions API" for your project.
+// 4. Create an API key and **secure it properly** (e.g., restrict it to your app's
+//    bundle ID for Android/iOS if deploying, or by IP for testing).
+// 5. Replace 'YOUR_API_KEY_HERE' with your actual key.
+// Without a valid key, the "Route & Lights" button will show an alert.
+// =====================================================================================
+const GOOGLE_MAPS_API_KEY = 'YOUR_API_KEY_HERE';
+
+// Polyline decoding (simplified version for demonstration)
+// In a real app, use a library like @mapbox/polyline or google-polyline
+function decodePolyline(encoded) {
+  if (!encoded) return [];
+  let points = [];
+  let index = 0, len = encoded.length;
+  let lat = 0, lng = 0;
+
+  while (index < len) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
+}
+
 
 export default function App() {
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [reportStatus, setReportStatus] = useState('');
-  const [predictionData, setPredictionData] = useState(null); // State for prediction
+  const [predictionData, setPredictionData] = useState(null);
+  const [destination, setDestination] = useState('');
+  const [routePolyline, setRoutePolyline] = useState([]);
+  const [onRouteLightPredictions, setOnRouteLightPredictions] = useState([]); // State for lights on route
 
   // Dummy traffic light data for markers - this should eventually come from backend or be dynamic
   const trafficLights = [
@@ -212,6 +269,88 @@ export default function App() {
     }
   };
 
+  // Helper function to get prediction for a single coordinate
+  const getPredictionForCoordinate = async (lat, lon) => {
+    try {
+      const response = await fetch(`http://localhost:4000/light_timings/${lat}/${lon}`);
+      if (!response.ok) {
+        // Don't alert for each failed point, just log console warning
+        console.warn(`Failed to fetch prediction for ${lat},${lon}: ${response.status}`);
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching prediction for ${lat},${lon}:`, error);
+      return null;
+    }
+  };
+
+  const fetchRouteAndLightPredictions = async () => {
+    if (!location || !destination) {
+      Alert.alert("Missing information", "Current location and destination are required.");
+      setRoutePolyline([]);
+      setOnRouteLightPredictions([]);
+      return;
+    }
+    if (GOOGLE_MAPS_API_KEY === 'YOUR_API_KEY_HERE') {
+      Alert.alert("API Key Missing", "Please add your Google Maps API Key in App.js.");
+      setRoutePolyline([]);
+      setOnRouteLightPredictions([]);
+      return;
+    }
+
+    setRoutePolyline([]); // Clear previous route
+    setOnRouteLightPredictions([]); // Clear previous light predictions
+    Alert.alert("Fetching Route...", "Please wait.");
+
+
+    try {
+      const origin = `${location.latitude},${location.longitude}`;
+      const destinationQuery = destination;
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destinationQuery}&key=${GOOGLE_MAPS_API_KEY}`;
+
+      const routeResponse = await fetch(url);
+      const routeJson = await routeResponse.json();
+
+      if (routeJson.routes && routeJson.routes.length > 0) {
+        const decodedPoints = decodePolyline(routeJson.routes[0].overview_polyline.points);
+        setRoutePolyline(decodedPoints);
+
+        // Identify lights on route
+        const SAMPLING_INTERVAL = Math.max(1, Math.floor(decodedPoints.length / 20)); // Sample ~20 points, or at least 1
+        const uniqueClusterPredictions = new Map();
+
+        for (let i = 0; i < decodedPoints.length; i += SAMPLING_INTERVAL) {
+          const point = decodedPoints[i];
+          const predictionResult = await getPredictionForCoordinate(point.latitude, point.longitude);
+          if (predictionResult && predictionResult.cluster_id && !uniqueClusterPredictions.has(predictionResult.cluster_id)) {
+            // Store the full prediction data, keyed by cluster_id to ensure uniqueness
+            uniqueClusterPredictions.set(predictionResult.cluster_id, {
+              ...predictionResult, // Includes cluster_id, center, averages, and prediction object
+              // Add the specific point on the polyline this cluster was found near, for marker placement
+              route_coordinate: point
+            });
+          }
+          // Add a small delay to avoid overwhelming the backend if too many points are sampled
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        setOnRouteLightPredictions(Array.from(uniqueClusterPredictions.values()));
+        if (uniqueClusterPredictions.size === 0) {
+            Alert.alert("Route Found", "Route displayed. No known traffic lights found along this route or no prediction data available.");
+        } else {
+            Alert.alert("Route Found", `Route displayed. Found ${uniqueClusterPredictions.size} traffic light(s) with predictions.`);
+        }
+
+      } else {
+        Alert.alert("No Route Found", `Could not find a route. Status: ${routeJson.status} ${routeJson.error_message || ''}`);
+      }
+    } catch (err) {
+      Alert.alert("Route Error", "An error occurred while fetching the route or light predictions.");
+      console.error("Error in fetchRouteAndLightPredictions:", err);
+    }
+  };
+
+
   return (
     <View style={styles.container}>
       {location ? (
@@ -226,12 +365,49 @@ export default function App() {
             }}
             showsUserLocation={true}
           >
-            {trafficLights.map((light) => ( // Using dummy data for markers
+            {routePolyline.length > 0 && (
+              <Polyline // Ensure Polyline is imported from react-native-maps
+                coordinates={routePolyline}
+                strokeColor="#007bff"
+                strokeWidth={4}
+              />
+            )}
+            {/* Display markers for lights found on the route */}
+            {onRouteLightPredictions.map((item) => {
+              // Determine marker color based on predicted status
+              let markerColor = 'grey'; // Default for unknown or other statuses
+              if (item.prediction && item.prediction.predicted_current_status) {
+                const status = item.prediction.predicted_current_status.toLowerCase();
+                if (status === 'green') markerColor = 'green';
+                else if (status === 'yellow') markerColor = 'yellow';
+                else if (status === 'red') markerColor = 'red';
+              }
+
+              return (
+                <Marker
+                  key={`route-light-${item.cluster_id}`}
+                  coordinate={{
+                    latitude: item.cluster_center.latitude,
+                    longitude: item.cluster_center.longitude,
+                  }}
+                  pinColor={markerColor}
+                  title={`Light ${item.cluster_id} Prediction`}
+                  description={
+                    item.prediction
+                      ? `Status: ${item.prediction.predicted_current_status.toUpperCase()} (${item.prediction.prediction_confidence})\nTime Left: ${item.prediction.predicted_time_remaining_seconds ?? 'N/A'}s\nLast Seen: ${item.prediction.last_seen_status} at ${new Date(item.prediction.last_seen_timestamp).toLocaleTimeString()}`
+                      : 'No prediction available'
+                  }
+                />
+              );
+            })}
+            {/* Fallback to dummy trafficLights markers if no route predictions, or keep for general context */}
+            {/* This part might be removed or changed if onRouteLightPredictions is the primary source of markers when a route is active */}
+            {!onRouteLightPredictions.length && trafficLights.map((light) => (
               <Marker
-                key={light.id}
+                key={`dummy-${light.id}`}
                 coordinate={light.coords}
                 title={light.title}
-                description={`Light is ${light.status}`} // This status is from dummy data
+                description={`Dummy: Light is ${light.status}`}
                 image={
                   light.status === 'green'
                     ? { uri: 'https://via.placeholder.com/32/008000/FFFFFF?Text=G' }
@@ -267,9 +443,22 @@ export default function App() {
             </View>
             {reportStatus && <Text style={styles.status}>Reported: {reportStatus.toUpperCase()}</Text>}
 
-            <TouchableOpacity style={styles.predictButton} onPress={fetchLightPrediction}>
-              <Text style={styles.predictButtonText}>Predict Light</Text>
+            <TouchableOpacity style={styles.actionButton} onPress={fetchLightPrediction}>
+              <Text style={styles.actionButtonText}>Predict Nearest</Text>
             </TouchableOpacity>
+
+            {/* Destination Input and Route Button */}
+            <View style={styles.destinationInputContainer}>
+              <TextInput
+                style={styles.destinationInput}
+                placeholder="Enter destination (e.g., City Hall)"
+                value={destination}
+                onChangeText={setDestination}
+              />
+              <TouchableOpacity style={styles.actionButton} onPress={fetchRouteAndLightPredictions}>
+                <Text style={styles.actionButtonText}>Route & Lights</Text>
+              </TouchableOpacity>
+            </View>
 
             {predictionData && predictionData.loading && <Text style={styles.predictionText}>Loading prediction...</Text>}
             {predictionData && predictionData.error && <Text style={styles.predictionTextError}>Error: {predictionData.error}</Text>}
@@ -364,20 +553,34 @@ const styles = StyleSheet.create({
   redButton: {
     backgroundColor: '#dc3545', // Bootstrap red
   },
-  predictButton: {
-    backgroundColor: '#007bff', // Bootstrap primary blue
+  actionButton: { // Generic style for Predict and Get Route buttons
+    backgroundColor: '#007bff',
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderRadius: 8,
-    marginVertical: 10, // Space around this button
+    marginVertical: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 120, // Make it a bit wider
+    minWidth: 120,
   },
-  predictButtonText: {
+  actionButtonText: { // Text for those buttons
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  destinationInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 5,
+  },
+  destinationInput: {
+    flex: 1,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    padding: 8,
+    marginRight: 10,
+    backgroundColor: '#fff',
   },
   predictionContainer: {
     marginTop: 10,
