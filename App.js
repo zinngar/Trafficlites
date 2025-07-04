@@ -13,14 +13,17 @@ export default function App() {
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [reportStatus, setReportStatus] = useState('');
+  const [predictionData, setPredictionData] = useState(null); // State for prediction
 
-  // Initialize DB and get location
-  // const trafficLights = [ // Dummy data, can be removed if not used for markers anymore
-  //   { id: 1, title: 'Main & 1st Ave', coords: { latitude: -26.6505, longitude: 153.0908 }, status: 'green', },
+  // Dummy traffic light data for markers - this should eventually come from backend or be dynamic
+  const trafficLights = [
+    // { id: 1, title: 'Main & 1st Ave', coords: { latitude: -26.6505, longitude: 153.0908 }, status: 'green', },
     { id: 2, title: 'Beach Rd & 2nd St', coords: { latitude: -26.6525, longitude: 153.0915 }, status: 'red', },
     { id: 3, title: 'Park Lane & 3rd Blvd', coords: { latitude: -26.6515, longitude: 153.0925 }, status: 'yellow', },
   ];
 
+
+  // Get initial location
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -183,6 +186,32 @@ export default function App() {
     });
   };
 
+  const fetchLightPrediction = async () => {
+    if (!location) {
+      Alert.alert("Location not available", "Cannot get prediction without current location.");
+      setPredictionData(null);
+      return;
+    }
+    setPredictionData({ loading: true }); // Indicate loading
+
+    try {
+      const response = await fetch(`http://localhost:4000/light_timings/${location.latitude}/${location.longitude}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
+        console.warn(`Failed to fetch prediction: ${errorData.message}`);
+        Alert.alert("Prediction Error", `Could not fetch prediction: ${errorData.message || 'Server error'}`);
+        setPredictionData({ error: errorData.message || 'Server error' });
+        return;
+      }
+      const data = await response.json();
+      setPredictionData(data);
+    } catch (error) {
+      console.error('Error fetching light prediction:', error);
+      Alert.alert("Network Error", "Failed to connect to server for prediction.");
+      setPredictionData({ error: 'Network error' });
+    }
+  };
+
   return (
     <View style={styles.container}>
       {location ? (
@@ -197,12 +226,12 @@ export default function App() {
             }}
             showsUserLocation={true}
           >
-            {trafficLights.map((light) => (
+            {trafficLights.map((light) => ( // Using dummy data for markers
               <Marker
                 key={light.id}
                 coordinate={light.coords}
                 title={light.title}
-                description={`Light is ${light.status}`}
+                description={`Light is ${light.status}`} // This status is from dummy data
                 image={
                   light.status === 'green'
                     ? { uri: 'https://via.placeholder.com/32/008000/FFFFFF?Text=G' }
@@ -237,6 +266,29 @@ export default function App() {
               </TouchableOpacity>
             </View>
             {reportStatus && <Text style={styles.status}>Reported: {reportStatus.toUpperCase()}</Text>}
+
+            <TouchableOpacity style={styles.predictButton} onPress={fetchLightPrediction}>
+              <Text style={styles.predictButtonText}>Predict Light</Text>
+            </TouchableOpacity>
+
+            {predictionData && predictionData.loading && <Text style={styles.predictionText}>Loading prediction...</Text>}
+            {predictionData && predictionData.error && <Text style={styles.predictionTextError}>Error: {predictionData.error}</Text>}
+            {predictionData && !predictionData.loading && !predictionData.error && predictionData.prediction && (
+              <View style={styles.predictionContainer}>
+                <Text style={styles.predictionTitle}>Prediction for Nearest Light:</Text>
+                <Text style={styles.predictionText}>Cluster ID: {predictionData.cluster_id}</Text>
+                <Text style={styles.predictionText}>
+                  Status: {predictionData.prediction.predicted_current_status.toUpperCase()}
+                  {predictionData.prediction.predicted_time_remaining_seconds !== null
+                    ? ` (Est. ${predictionData.prediction.predicted_time_remaining_seconds}s left)`
+                    : ''}
+                </Text>
+                <Text style={styles.predictionText}>Confidence: {predictionData.prediction.prediction_confidence}</Text>
+                <Text style={styles.predictionText}>Last Seen: {predictionData.prediction.last_seen_status} at {new Date(predictionData.prediction.last_seen_timestamp).toLocaleTimeString()}</Text>
+                 {/* Optionally display average durations too */}
+                 {/* <Text style={styles.predictionText}>Avg Green: {predictionData.average_durations.green}s</Text> */}
+              </View>
+            )}
           </View>
         </>
       ) : (
@@ -253,37 +305,37 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  buttonContainer: {
+  buttonContainer: { // This container holds the report buttons AND the prediction UI
     position: 'absolute',
-    bottom: 20, // Adjust as needed for padding from screen bottom
-    right: 20,  // Adjust as needed for padding from screen right
+    bottom: 20,
+    right: 20,
     padding: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)', // Slightly transparent white
-    borderRadius: 10, // Optional: for rounded corners
-    elevation: 5, // Optional: for shadow on Android
-    shadowColor: '#000', // Optional: for shadow on iOS
-    shadowOffset: { width: 0, height: 2 }, // Optional: for shadow on iOS
-    shadowOpacity: 0.25, // Optional: for shadow on iOS
-    shadowRadius: 3.84, // Optional: for shadow on iOS
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 10,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    alignItems: 'center', // Center items like the predict button if it's standalone
   },
-  buttonRow: {
-    flexDirection: 'column', // Stack buttons vertically
-    // justifyContent: 'space-around', // Less relevant for vertical stack with individual button margins
-    // marginVertical: 10, // Will be handled by individual button margins
+  buttonRow: { // For Green, Yellow, Red buttons
+    flexDirection: 'column',
   },
-  reportText: {
+  reportText: { // "Report Light:"
     textAlign: 'center',
     fontWeight: 'bold',
-    marginBottom: 10, // Add some space below the title
+    marginBottom: 5,
     color: '#333',
   },
-  status: {
+  status: { // "Reported: GREEN"
     textAlign: 'center',
     fontStyle: 'italic',
-    marginTop: 10, // Add some space above the status
+    marginTop: 5,
+    marginBottom: 10, // Space before predict button
     color: '#555',
   },
-  reportButton: {
+  reportButton: { // For G, Y, R buttons
     paddingVertical: 12, // Increased padding for larger touch target
     paddingHorizontal: 15, // Increased padding
     borderRadius: 8,
@@ -312,4 +364,42 @@ const styles = StyleSheet.create({
   redButton: {
     backgroundColor: '#dc3545', // Bootstrap red
   },
+  predictButton: {
+    backgroundColor: '#007bff', // Bootstrap primary blue
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    marginVertical: 10, // Space around this button
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 120, // Make it a bit wider
+  },
+  predictButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  predictionContainer: {
+    marginTop: 10,
+    padding: 10,
+    backgroundColor: 'rgba(230, 230, 230, 0.8)',
+    borderRadius: 5,
+  },
+  predictionTitle: {
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  predictionText: {
+    fontSize: 14,
+    marginBottom: 3,
+    textAlign: 'center',
+  },
+  predictionTextError: {
+    fontSize: 14,
+    marginBottom: 3,
+    textAlign: 'center',
+    color: 'red',
+  }
 });
