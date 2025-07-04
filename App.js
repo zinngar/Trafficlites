@@ -1,7 +1,7 @@
 // Trafficlites - MVP React Native App with Map, Markers, and Report Button // Using Expo
 
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, Button, Alert } from 'react-native';
+import { View, StyleSheet, Text, Button, Alert, TouchableOpacity } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 
@@ -95,13 +95,28 @@ export default function App() {
           </MapView>
 
           <View style={styles.buttonContainer}>
-            <Text style={styles.reportText}>Report Traffic Light:</Text>
+            <Text style={styles.reportText}>Report Light:</Text>
             <View style={styles.buttonRow}>
-              <Button title="Green" color="green" onPress={() => reportLightStatus('green')} />
-              <Button title="Yellow" color="gold" onPress={() => reportLightStatus('yellow')} />
-              <Button title="Red" color="red" onPress={() => reportLightStatus('red')} />
+              <TouchableOpacity
+                style={[styles.reportButton, styles.greenButton]}
+                onPress={() => reportLightStatus('green')}
+              >
+                <Text style={styles.reportButtonText}>GREEN</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.reportButton, styles.yellowButton]}
+                onPress={() => reportLightStatus('yellow')}
+              >
+                <Text style={styles.reportButtonText}>YELLOW</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.reportButton, styles.redButton]}
+                onPress={() => reportLightStatus('red')}
+              >
+                <Text style={styles.reportButtonText}>RED</Text>
+              </TouchableOpacity>
             </View>
-            {reportStatus && <Text style={styles.status}>Last reported: {reportStatus.toUpperCase()}</Text>}
+            {reportStatus && <Text style={styles.status}>Reported: {reportStatus.toUpperCase()}</Text>}
           </View>
         </>
       ) : (
@@ -119,20 +134,62 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   buttonContainer: {
+    position: 'absolute',
+    bottom: 20, // Adjust as needed for padding from screen bottom
+    right: 20,  // Adjust as needed for padding from screen right
     padding: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)', // Slightly transparent white
+    borderRadius: 10, // Optional: for rounded corners
+    elevation: 5, // Optional: for shadow on Android
+    shadowColor: '#000', // Optional: for shadow on iOS
+    shadowOffset: { width: 0, height: 2 }, // Optional: for shadow on iOS
+    shadowOpacity: 0.25, // Optional: for shadow on iOS
+    shadowRadius: 3.84, // Optional: for shadow on iOS
   },
   buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginVertical: 10,
+    flexDirection: 'column', // Stack buttons vertically
+    // justifyContent: 'space-around', // Less relevant for vertical stack with individual button margins
+    // marginVertical: 10, // Will be handled by individual button margins
   },
   reportText: {
     textAlign: 'center',
     fontWeight: 'bold',
+    marginBottom: 10, // Add some space below the title
+    color: '#333',
   },
   status: {
     textAlign: 'center',
     fontStyle: 'italic',
+    marginTop: 10, // Add some space above the status
+    color: '#555',
+  },
+  reportButton: {
+    paddingVertical: 12, // Increased padding for larger touch target
+    paddingHorizontal: 15, // Increased padding
+    borderRadius: 8,
+    marginVertical: 5, // Space between stacked buttons
+    alignItems: 'center', // Center text inside button
+    justifyContent: 'center',
+    minWidth: 100, // Ensure buttons have a decent minimum width
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.20,
+    shadowRadius: 1.41,
+  },
+  reportButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16, // Larger text
+    textAlign: 'center',
+  },
+  greenButton: {
+    backgroundColor: '#28a745', // Bootstrap green
+  },
+  yellowButton: {
+    backgroundColor: '#ffc107', // Bootstrap yellow
+  },
+  redButton: {
+    backgroundColor: '#dc3545', // Bootstrap red
   },
 });
