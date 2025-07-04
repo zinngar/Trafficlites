@@ -13,9 +13,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.example.trafficlitesapp",
+      "bundleIdentifier": "com.zinngar.trafficlites",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses your location to show your position on the map and help report traffic light statuses nearby."
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao"
       }
     },
     "android": {
@@ -26,21 +29,11 @@
       "permissions": [
         "ACCESS_FINE_LOCATION"
       ],
-      "package": "com.example.trafficlitesapp",
+      "package": "com.zinngar.trafficlites",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao"
         }
-      }
-    },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.example.trafficlitesapp",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app uses your location to show your position on the map and help report traffic light statuses nearby."
-      },
-      "config": {
-        "googleMapsApiKey": "AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao"
       }
     },
     "web": {
