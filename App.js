@@ -9,7 +9,7 @@ import * as SQLite from 'expo-sqlite';
 // Open or create a database file
 const db = SQLite.openDatabase('local_reports.db');
 
-const GOOGLE_MAPS_API_KEY = 'YOUR_API_KEY_HERE'; // Replace with your key
+const GOOGLE_MAPS_API_KEY = 'AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao'; // Replace with your key
 
 function decodePolyline(encoded) {
   if (!encoded) return [];
