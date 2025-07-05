@@ -208,7 +208,7 @@ export default function App() {
             </View>
           </View>
 
-          {selectedLightDetails && ( /* Light Detail Modal */ )}
+          {selectedLightDetails && null /* Light Detail Modal - Placeholder for future component */}
         </>
       ) : ( <Text>{errorMsg || 'Getting location...'}</Text> )}
     </View>
