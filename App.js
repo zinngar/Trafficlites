@@ -193,7 +193,9 @@ export default function App() {
             // customMapStyle={[]} // Optional: for custom map styling
           >
             {routePolyline.length > 0 && <Polyline coordinates={routePolyline} strokeColor="#007bff" strokeWidth={4} />}
-            {onRouteLightPredictions.map((item) => (
+            {onRouteLightPredictions
+              .filter(item => item && item.cluster_center)
+              .map((item) => (
                 <Marker
                     key={`route-light-${item.cluster_id}`}
                     coordinate={{ latitude: item.cluster_center.latitude, longitude: item.cluster_center.longitude }}
