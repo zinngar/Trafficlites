@@ -7,7 +7,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "build:android": "eas build --platform android --profile preview --local",
+    "build:android": "eas build --platform android --profile preview --non-interactive",
     "build:ios": "eas build --platform ios --profile preview --local",
     "build:web": "npx expo export -p web",
     "lint": "echo \"Linting placeholder - configure your linter here\"",
@@ -18,13 +18,14 @@
     "submit:all": "npm run submit:android && npm run submit:ios"
   },
   "dependencies": {
-    "expo": "~51.0.2",
+    "expo": "^53.0.20",
+    "expo-location": "~17.0.1",
+    "expo-sqlite": "~14.0.3",
     "expo-status-bar": "~1.12.1",
     "react": "18.2.0",
-    "react-native": "0.74.1",
+    "react-native": "0.74.5",
     "react-native-maps": "1.14.0",
-    "expo-location": "~17.0.1",
-    "expo-sqlite": "~14.0.3"
+    "expo-updates": "~0.28.17"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"
