@@ -61,5 +61,7 @@ export default ({ config }) => ({
   },
   updates: {
     url: 'https://u.expo.dev/0bc0887b-6e2d-440c-a112-d5cd938f0aa1',
+    enabled: true,
+    fallbackToCacheTimeout: 0,
   },
 });
