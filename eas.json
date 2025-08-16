@@ -11,7 +11,8 @@
       },
       "ios": {
         "simulator": true
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -21,7 +22,8 @@
       "ios": {
         "simulator": true
       },
-      "env": {}
+      "env": {},
+      "channel": "preview"
     },
     "production": {
       "distribution": "store",
@@ -29,7 +31,8 @@
         "buildType": "app-bundle"
       },
       "ios": {},
-      "env": {}
+      "env": {},
+      "channel": "production"
     }
   },
   "submit": {
