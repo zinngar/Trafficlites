@@ -46,8 +46,14 @@ function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
         has_complete_averages
     } = lightData;
 
+    const confidence = base_confidence === 'high' && has_complete_averages ? 0.9 : 0.5;
+
     if (base_confidence === 'low' || !has_complete_averages) {
-        return { predicted_status: 'unknown', wait_time_seconds: 0, effectivelyUnknown: true };
+        return {
+            predicted_current_status: 'unknown',
+            predicted_time_remaining_seconds: 0,
+            prediction_confidence: confidence,
+        };
     }
 
     const effective_averages = {
@@ -57,14 +63,22 @@ function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
     };
 
     if (!last_seen_status || !last_seen_timestamp) {
-        return { predicted_status: 'unknown', wait_time_seconds: 0, effectivelyUnknown: true };
+        return {
+            predicted_current_status: 'unknown',
+            predicted_time_remaining_seconds: 0,
+            prediction_confidence: 0.2,
+        };
     }
 
     let currentSimTimeMs = new Date(last_seen_timestamp).getTime();
     let currentSimStatus = last_seen_status;
 
     if (arrivalTimeInMs < currentSimTimeMs) {
-        return { predicted_status: 'unknown', wait_time_seconds: 0, effectivelyUnknown: true };
+        return {
+            predicted_current_status: 'unknown',
+            predicted_time_remaining_seconds: 0,
+            prediction_confidence: 0.3,
+        };
     }
 
     let simulatedCycleCount = 0;
@@ -87,16 +101,12 @@ function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
             // Arrival is within the current status duration
             const timeIntoStatusMs = arrivalTimeInMs - currentSimTimeMs;
             const timeRemainingMs = durationForCurrentStatusMs - timeIntoStatusMs;
-            let wait_time_seconds = 0;
-            if (currentSimStatus === 'red') {
-                wait_time_seconds = timeRemainingMs / 1000;
-            } else if (currentSimStatus === 'yellow') {
-                wait_time_seconds = (timeRemainingMs + (effective_averages.red * 1000)) / 1000;
-            }
+            let time_remaining_seconds = timeRemainingMs / 1000;
+
             return {
-                predicted_status: currentSimStatus,
-                wait_time_seconds: Math.round(wait_time_seconds),
-                effectivelyUnknown: false,
+                predicted_current_status: currentSimStatus,
+                predicted_time_remaining_seconds: Math.round(time_remaining_seconds),
+                prediction_confidence: confidence,
             };
         }
 
@@ -109,7 +119,11 @@ function predictLightStateAtFutureTime(lightData, arrivalTimeInMs) {
     }
 
     // If simulation ends or exceeds max cycles, return unknown
-    return { predicted_status: 'unknown', wait_time_seconds: 0, effectivelyUnknown: true };
+    return {
+        predicted_current_status: 'unknown',
+        predicted_time_remaining_seconds: 0,
+        prediction_confidence: 0.4, // Low confidence if we had to loop too much
+    };
 }
 
 
