@@ -102,6 +102,7 @@ export default function App() {
   const [googleRouteSteps, setGoogleRouteSteps] = useState([]);
   const [countdownSeconds, setCountdownSeconds] = useState(null);
   const [selectedLightDetails, setSelectedLightDetails] = useState(null);
+  const [serverStatus, setServerStatus] = useState('Checking...');
 
   // --- Dummy Data & API Functions (placeholders) ---
   const trafficLights = [
@@ -117,6 +118,31 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
+    const checkServerStatus = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+
+      try {
+        // Note: Using a placeholder. Replace with your actual backend health check endpoint.
+        const response = await fetch(config.BACKEND_URL, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          setServerStatus('Connected');
+        } else {
+          setServerStatus('Disconnected');
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.log('Server check timed out.');
+        } else {
+          console.error("Server check failed:", error);
+        }
+        setServerStatus('Unable to connect to server');
+      }
+    };
+
+    checkServerStatus();
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -154,6 +180,9 @@ export default function App() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.statusBar}>
+        <Text style={styles.statusText}>Server: {serverStatus}</Text>
+      </View>
       {location ? (
         <>
           <MapView
@@ -196,12 +225,21 @@ export default function App() {
           />
         </>
       ) : ( <Text>{errorMsg || 'Getting location...'}</Text> )}
+       {serverStatus !== 'Connected' && (
+        <View style={styles.serverWarning}>
+          <Text style={styles.serverWarningText}>{serverStatus}</Text>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  statusBar: { backgroundColor: '#f8f9fa', paddingVertical: 8, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#dee2e6', alignItems: 'center' },
+  statusText: { fontSize: 12, color: '#495057' },
+  serverWarning: { position: 'absolute', top: 50, left: 0, right: 0, backgroundColor: 'rgba(255, 236, 179, 0.9)', padding: 12, alignItems: 'center', },
+  serverWarningText: { color: '#856404', fontWeight: 'bold' },
   map: { flex: 1 },
   bottomControlsContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', padding: 5, maxHeight: '45%', backgroundColor: 'rgba(0,0,0,0.05)' },
   routeStepsOuterContainer: { flex: 1.2, backgroundColor: 'rgba(250,250,250,0.9)', borderRadius: 10, padding: 8, margin: 5, maxHeight: '100%' },
