@@ -68,7 +68,9 @@ app.post('/report', reportValidation, async (req, res) => {
 });
 
 app.get('/light_timings/:latitude/:longitude', lightTimingsValidation, async (req, res) => {
-    const { latitude, longitude } = req.params;
+    const latitude = parseFloat(req.params.latitude);
+    const longitude = parseFloat(req.params.longitude);
+
     try {
         // This is a placeholder for the actual logic that would fetch light data from the DB
         // and then call the prediction service.
