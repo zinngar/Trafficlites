@@ -40,7 +40,8 @@ Trafficlites/
 ├── assets/           # Image and font assets for the mobile app
 ├── database_schema/  # SQL schemas
 ├── App.js            # Main React Native application component
-├── config.js         # Frontend configuration (e.g., API keys)
+├── app.config.js     # Expo configuration file
+├── .env.example      # Example environment variables
 ├── package.json      # Frontend dependencies
 └── Readme.md         # This file
 ```
@@ -103,16 +104,15 @@ This guide will walk you through setting up the Trafficlites application, includ
     npm install
     ```
 
-2.  **Configure API Keys:**
-    Open the `config.js` file at the root of the project. You will need to add your own Google Maps API key for the map functionality to work correctly.
-    ```javascript
-    // config.js
-    const config = {
-        GOOGLE_MAPS_API_KEY: 'YOUR_GOOGLE_MAPS_API_KEY_HERE'
-    };
-    export default config;
+2.  **Configure Environment Variables:**
+    Create a `.env` file in the root of the project by copying the example file:
+    ```bash
+    cp .env.example .env
     ```
-    **Note:** For a real application, it is highly recommended to use a library like `react-native-dotenv` to avoid committing keys to version control.
+    Open the `.env` file and add your Google Maps API key:
+    ```env
+    GOOGLE_MAPS_API_KEY="YOUR_GOOGLE_MAPS_API_KEY_HERE"
+    ```
 
 3.  **Start the Development Server:**
     ```bash

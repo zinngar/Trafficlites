@@ -3,7 +3,7 @@ import { View, StyleSheet, Text, TouchableOpacity, TextInput, ScrollView, Modal 
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
-import config from './config.js'; // Import the configuration
+import Constants from 'expo-constants';
 
 // Open or create a database file
 const db = SQLite.openDatabase('local_reports.db');
@@ -124,7 +124,7 @@ export default function App() {
 
       try {
         // Note: Using a placeholder. Replace with your actual backend health check endpoint.
-        const response = await fetch(config.BACKEND_URL, { signal: controller.signal });
+        const response = await fetch(Constants.expoConfig.extra.backendUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (response.ok) {
           setServerStatus('Connected');
