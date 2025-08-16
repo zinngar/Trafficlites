@@ -104,12 +104,15 @@ const localInitDb = async () => {
         // Example: await client.query('CREATE TABLE IF NOT EXISTS reports (...)');
         client.release();
     } catch (err) {
-        console.error('Failed to connect to the database.', err.stack);
-        process.exit(1);
+        console.error('Could not connect to the database. Continuing without it.', err.stack);
     }
 };
 
-app.listen(PORT, async () => {
+const startServer = async () => {
     await localInitDb();
-    console.log(`Trafficlites backend listening on port ${PORT}`);
-});
+    app.listen(PORT, () => {
+        console.log(`Trafficlites backend listening on port ${PORT}`);
+    });
+};
+
+startServer();

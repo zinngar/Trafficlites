@@ -5,7 +5,8 @@
 // In a real project, this file should be added to .gitignore.
 
 const config = {
-    GOOGLE_MAPS_API_KEY: 'AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao' // Replace with your key
+    GOOGLE_MAPS_API_KEY: 'AIzaSyAOVYRIgupAurZup5y1PRh8Ismb1A3lLao', // Replace with your key
+    BACKEND_URL: 'http://localhost:4000'
 };
 
 export default config;
