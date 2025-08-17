@@ -33,7 +33,9 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "dotenv": "^17.2.1",
-    "eas-cli": "^16.17.4"
+    "eas-cli": "^3.21.1",
+    "@expo/config-plugins": "~8.0.0",
+    "@expo/prebuild-config": "~7.0.0"
   },
   "private": true
 }
