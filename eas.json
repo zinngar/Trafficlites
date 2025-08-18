@@ -1,42 +1,30 @@
 {
-  "expo": {
-    "name": "Trafficlites",
-    "slug": "trafficlites",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/0bc0887b-6e2d-440c-a112-d5cd938f0aa1",
-      "fallbackToCacheTimeout": 0
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "assetBundlePatterns": ["**/*"],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.trafficlites"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+  "cli": {
+    "version": ">= 3.15.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
       },
-      "package": "com.yourname.trafficlites"
+      "ios": {
+        "simulator": false
+      },
+      "channel": "preview"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "0bc0887b-6e2d-440c-a112-d5cd938f0aa1"
-      }
+    "production": {
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "channel": "production"
     }
+  },
+  "submit": {
+    "production": {}
   }
 }
