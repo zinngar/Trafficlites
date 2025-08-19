@@ -8,14 +8,22 @@
         "buildType": "apk"
       },
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "env": {
+        "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}",
+        "BACKEND_URL": "${BACKEND_URL}"
+      }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
       },
       "distribution": "store",
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}",
+        "BACKEND_URL": "${BACKEND_URL}"
+      }
     }
   },
   "submit": {
