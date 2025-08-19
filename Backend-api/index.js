@@ -1,19 +1,23 @@
-// Trafficlites Backend - Node.js + Express + PostgreSQL
+// Trafficlites Backend - Node.js + Express + Supabase
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const { getDistance, predictLightStateAtFutureTime } = require('./services.js');
 
 // --- Configuration & Constants ---
 const PORT = process.env.PORT || 4000;
 
-const DB_CONFIG = {
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-};
+// --- Supabase Client Setup ---
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
-const pool = new Pool(DB_CONFIG);
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Supabase URL and Anon Key are required. Make sure to set them in your .env file.");
+    process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // --- Express App Setup ---
 const app = express();
@@ -57,10 +61,16 @@ const lightTimingsValidation = validate([
 app.post('/report', reportValidation, async (req, res) => {
     const { latitude, longitude, status } = req.body;
     try {
-        // In a real implementation, you would save this to the database
-        // For example: await pool.query('INSERT INTO reports (latitude, longitude, status) VALUES ($1, $2, $3)', [latitude, longitude, status]);
-        console.log(`Received valid report: ${status} at (${latitude}, ${longitude})`);
-        res.status(202).json({ message: 'Report received.' });
+        const { data, error } = await supabase
+            .from('reports')
+            .insert([{ latitude, longitude, status }]);
+
+        if (error) {
+            console.error('Error inserting report:', error);
+            return res.status(500).json({ error: 'Failed to store report.' });
+        }
+
+        res.status(201).json({ message: 'Report created successfully.', data });
     } catch (error) {
         console.error('Error processing report:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -72,17 +82,22 @@ app.get('/light_timings/:latitude/:longitude', lightTimingsValidation, async (re
     const longitude = parseFloat(req.params.longitude);
 
     try {
-        // This is a placeholder for the actual logic that would fetch light data from the DB
-        // and then call the prediction service.
-        const mockLightData = {
-            average_durations: { green: 55, yellow: 5, red: 40 },
-            last_seen_status: 'red',
-            last_seen_timestamp: new Date(Date.now() - 20000).toISOString(), // 20 seconds ago
-            base_confidence: 'high',
-            has_complete_averages: true,
-        };
+        const { data: lightData, error } = await supabase.rpc('get_nearby_light_data', {
+            lat: latitude,
+            lon: longitude
+        });
+
+        if (error) {
+            console.error('Error fetching light data:', error);
+            return res.status(500).json({ error: 'Failed to fetch light data.' });
+        }
+
+        if (!lightData) {
+            return res.status(404).json({ message: 'No traffic light data found for the given location.' });
+        }
+
         const arrivalTime = Date.now() + 30000; // 30 seconds from now
-        const prediction = predictLightStateAtFutureTime(mockLightData, arrivalTime);
+        const prediction = predictLightStateAtFutureTime(lightData, arrivalTime);
 
         res.status(200).json({
             requested_coords: { latitude, longitude },
@@ -96,20 +111,7 @@ app.get('/light_timings/:latitude/:longitude', lightTimingsValidation, async (re
 
 
 // --- Server Initialization ---
-const localInitDb = async () => {
-    try {
-        const client = await pool.connect();
-        console.log('Database connected successfully.');
-        // You could add table creation scripts here for development
-        // Example: await client.query('CREATE TABLE IF NOT EXISTS reports (...)');
-        client.release();
-    } catch (err) {
-        console.error('Could not connect to the database. Continuing without it.', err.stack);
-    }
-};
-
 const startServer = async () => {
-    await localInitDb();
     app.listen(PORT, () => {
         console.log(`Trafficlites backend listening on port ${PORT}`);
     });
