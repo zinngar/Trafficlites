@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, TextInput, ScrollView, Modal } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
 import Constants from 'expo-constants';
@@ -190,9 +190,11 @@ export default function App() {
             style={styles.map}
             initialRegion={{ latitude: location.latitude, longitude: location.longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }}
             showsUserLocation={true}
-            // provider="google" // Uncomment if you have Google Maps configured
-            // customMapStyle={[]} // Optional: for custom map styling
           >
+            <UrlTile
+              urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maximumZ={19}
+            />
             {routePolyline.length > 0 && <Polyline coordinates={routePolyline} strokeColor="#007bff" strokeWidth={4} />}
             {onRouteLightPredictions
               .filter(item => item && item.cluster_center)
