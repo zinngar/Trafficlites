@@ -10,7 +10,8 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "BACKEND_URL": "${BACKEND_URL}"
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}"
       }
     },
     "production": {
@@ -20,8 +21,8 @@
       "distribution": "store",
       "channel": "production",
       "env": {
-        "GOOGLE_MAPS_API_KEY": "${GOOGLE_MAPS_API_KEY}",
-        "BACKEND_URL": "${BACKEND_URL}"
+        "SUPABASE_URL": "${SUPABASE_URL}",
+        "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}"
       }
     }
   },
