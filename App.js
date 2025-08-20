@@ -120,12 +120,17 @@ export default function App() {
   // --- Effects ---
   useEffect(() => {
     const checkServerStatus = async () => {
+      const backendUrl = Constants.expoConfig?.extra?.backendUrl;
+      if (!backendUrl) {
+        setServerStatus('Disconnected (URL not set)');
+        return;
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
 
       try {
-        // Note: Using a placeholder. Replace with your actual backend health check endpoint.
-        const response = await fetch(Constants.expoConfig.extra.backendUrl, { signal: controller.signal });
+        const response = await fetch(backendUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (response.ok) {
           setServerStatus('Connected');
