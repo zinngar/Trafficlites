@@ -43,7 +43,8 @@ export default ({ config }) => ({
     eas: {
       projectId: '0bc0887b-6e2d-440c-a112-d5cd938f0aa1',
     },
-    backendUrl: process.env.BACKEND_URL,
+    supabaseUrl: process.env.SUPABASE_URL,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
   },
   owner: 'zinngar',
   runtimeVersion: {

@@ -4,7 +4,7 @@ import { View, StyleSheet, Text, TouchableOpacity, TextInput, ScrollView, Modal 
 import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SQLite from 'expo-sqlite';
-import Constants from 'expo-constants';
+import { supabase } from './src/supabaseClient';
 
 // Open or create a database file
 const db = SQLite.openDatabase('local_reports.db');
@@ -103,52 +103,84 @@ export default function App() {
   const [googleRouteSteps, setGoogleRouteSteps] = useState([]);
   const [countdownSeconds, setCountdownSeconds] = useState(null);
   const [selectedLightDetails, setSelectedLightDetails] = useState(null);
-  const [serverStatus, setServerStatus] = useState('Checking...');
+  const [supabaseStatus, setSupabaseStatus] = useState('Checking...');
 
-  // --- Dummy Data & API Functions (placeholders) ---
-  const trafficLights = [
-    { id: 2, title: 'Beach Rd & 2nd St', coords: { latitude: -26.6525, longitude: 153.0915 }, status: 'red', },
-    { id: 3, title: 'Park Lane & 3rd Blvd', coords: { latitude: -26.6515, longitude: 153.0925 }, status: 'yellow', },
-  ];
-  const syncPendingReports = async () => console.log("Syncing reports...");
-  const reportLightStatus = (status) => setReportStatus(status);
-  const fetchLightPrediction = async () => console.log("Fetching prediction...");
-  const fetchRouteAndLightPredictions = async () => console.log("Fetching route...");
-  const fetchDepartureAdvice = async () => console.log("Fetching advice...");
+  // --- API Functions ---
+  const reportLightStatus = async (status) => {
+    if (!location) return;
+    const { latitude, longitude } = location;
+    const { data, error } = await supabase
+      .from('reports')
+      .insert([{ latitude, longitude, status }]);
+
+    if (error) {
+      console.error('Error reporting light status:', error);
+      // If there's an error, store the report locally
+      db.transaction(tx => {
+        tx.executeSql(
+          'INSERT INTO pending_reports (latitude, longitude, status, timestamp) VALUES (?, ?, ?, ?)',
+          [latitude, longitude, status, new Date().toISOString()]
+        );
+      });
+    } else {
+      console.log('Report sent successfully');
+    }
+  };
+
+  const syncPendingReports = async () => {
+    db.transaction(tx => {
+      tx.executeSql(
+        'SELECT * FROM pending_reports WHERE synced = 0',
+        [],
+        async (_, { rows }) => {
+          if (rows.length > 0) {
+            const reports = rows._array;
+            console.log(`Syncing ${reports.length} pending reports...`);
+            const { error } = await supabase.from('reports').insert(reports.map(r => ({
+              latitude: r.latitude,
+              longitude: r.longitude,
+              status: r.status,
+              created_at: r.timestamp,
+            })));
+
+            if (!error) {
+              const ids = reports.map(r => r.id).join(',');
+              tx.executeSql(`UPDATE pending_reports SET synced = 1 WHERE id IN (${ids})`);
+              console.log('Pending reports synced successfully');
+            } else {
+              console.error('Error syncing pending reports:', error);
+            }
+          }
+        }
+      );
+    });
+  };
+
+  const fetchLightPrediction = async () => {
+    if (!location) return;
+    const { latitude, longitude } = location;
+    const { data, error } = await supabase.rpc('get_nearby_light_data', {
+        lat: latitude,
+        lon: longitude
+    });
+
+    if (error) {
+      console.error('Error fetching light prediction:', error);
+    } else {
+      setPredictionData(data);
+    }
+  };
 
 
   // --- Effects ---
   useEffect(() => {
-    const checkServerStatus = async () => {
-      const backendUrl = Constants.expoConfig?.extra?.backendUrl;
-      if (!backendUrl) {
-        setServerStatus('Disconnected (URL not set)');
-        return;
-      }
+    // Check supabase connection
+    if (supabase) {
+      setSupabaseStatus('Connected');
+    } else {
+      setSupabaseStatus('Disconnected');
+    }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
-
-      try {
-        const response = await fetch(backendUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (response.ok) {
-          setServerStatus('Connected');
-        } else {
-          setServerStatus('Disconnected');
-        }
-      } catch (error) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
-          console.log('Server check timed out.');
-        } else {
-          console.error("Server check failed:", error);
-        }
-        setServerStatus('Unable to connect to server');
-      }
-    };
-
-    checkServerStatus();
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -187,7 +219,7 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={styles.statusBar}>
-        <Text style={styles.statusText}>Server: {serverStatus}</Text>
+        <Text style={styles.statusText}>Supabase: {supabaseStatus}</Text>
       </View>
       {location ? (
         <>
@@ -235,9 +267,9 @@ export default function App() {
           />
         </>
       ) : ( <Text>{errorMsg || 'Getting location...'}</Text> )}
-       {serverStatus !== 'Connected' && (
+       {supabaseStatus !== 'Connected' && (
         <View style={styles.serverWarning}>
-          <Text style={styles.serverWarningText}>{serverStatus}</Text>
+          <Text style={styles.serverWarningText}>{supabaseStatus}</Text>
         </View>
       )}
     </View>
