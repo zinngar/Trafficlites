@@ -18,9 +18,6 @@ export default ({ config }) => ({
       NSLocationWhenInUseUsageDescription:
         'This app uses your location to show your position on the map and help report traffic light statuses nearby.',
     },
-    config: {
-      googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
-    },
   },
   android: {
     adaptiveIcon: {
@@ -29,11 +26,6 @@ export default ({ config }) => ({
     },
     permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
     package: 'com.zinngar.trafficlites',
-    config: {
-      googleMaps: {
-        apiKey: process.env.GOOGLE_MAPS_API_KEY,
-      },
-    },
   },
   web: {
     favicon: './assets/favicon.png',
