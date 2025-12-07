@@ -103,16 +103,17 @@ This guide will walk you through setting up the Trafficlites application, includ
     npm install
     ```
 
-2.  **Configure API Keys:**
-    Open the `config.js` file at the root of the project. You will need to add your own Google Maps API key for the map functionality to work correctly.
+2.  **Configure Supabase Keys:**
+    Open the `config.js` file at the root of the project. You will need to add your own Supabase URL and anonymous key for the app to connect to the backend.
     ```javascript
     // config.js
     const config = {
-        GOOGLE_MAPS_API_KEY: 'YOUR_GOOGLE_MAPS_API_KEY_HERE'
+      SUPABASE_URL: 'YOUR_SUPABASE_URL_HERE',
+      SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY_HERE',
     };
     export default config;
     ```
-    **Note:** For a real application, it is highly recommended to use a library like `react-native-dotenv` to avoid committing keys to version control.
+    **Note:** For a real application, it is highly recommended to manage these keys securely and not commit them directly to version control.
 
 3.  **Start the Development Server:**
     ```bash
