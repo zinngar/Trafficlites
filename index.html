@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trafficlites - P2P Reports (Gun.js PoC)</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #reportsDisplay li { border-bottom: 1px solid #eee; padding: 5px 0; }
+        .input-group { margin-bottom: 10px; }
+        label { display: inline-block; width: 60px; }
+    </style>
+</head>
+<body>
+    <h1>Trafficlites - P2P Reports (Gun.js PoC)</h1>
+
+    <div class="input-group">
+        <label for="statusInput">Status:</label>
+        <input type="text" id="statusInput" placeholder="e.g., green, red, malfunctioning">
+    </div>
+    <!-- For PoC, lat/lon can be hardcoded or have basic inputs -->
+    <div class="input-group">
+        <label for="latitudeInput">Lat:</label>
+        <input type="text" id="latitudeInput" placeholder="e.g., 34.05" value="34.0522">
+    </div>
+    <div class="input-group">
+        <label for="longitudeInput">Lon:</label>
+        <input type="text" id="longitudeInput" placeholder="e.g., -118.24" value="-118.2437">
+    </div>
+
+    <button id="submitReportBtn">Submit Report</button>
+
+    <h2>Live Reports:</h2>
+    <ul id="reportsDisplay">
+        <li>Loading reports from network...</li>
+    </ul>
+
+    <!-- Gun.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <!-- Our custom script -->
+    <script src="script.js"></script>
+</body>
+</html>
