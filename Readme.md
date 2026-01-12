@@ -2,9 +2,9 @@
 
 🚦 **Description**
 
-Trafficlites is a cross-platform mobile app (Android & iOS) that helps users report and predict traffic light statuses to avoid red lights and improve travel time. The app uses crowdsourced reports and backend data analysis to learn traffic patterns and suggest optimal routes.
+Trafficlites is a cross-platform mobile app (Android & iOS) that helps users report and predict traffic light statuses to avoid red lights and improve travel time. The app uses crowdsourced reports and Supabase for data analysis to learn traffic patterns and suggest optimal routes.
 
-Built with React Native + Expo on the frontend and Node.js + PostgreSQL on the backend.
+Built with React Native and Expo, using Supabase for backend services.
 
 ---
 
@@ -17,28 +17,15 @@ Built with React Native + Expo on the frontend and Node.js + PostgreSQL on the b
 
 ---
 
-🔧 **Backend API (Node.js + Express + PostgreSQL)**
-
-- RESTful API for submitting and retrieving traffic light reports
-- Stores user-submitted light status, location, and timestamp
-- Ready for future expansion with authentication and analytics
-
----
-
 🗂 **Folder Structure**
 
 The repository is organized as follows:
 
 ```
 Trafficlites/
-├── Backend-api/      # Node.js API server
-│   ├── services.js   # Business logic (predictions, etc.)
-│   ├── index.js      # Main server file
-│   ├── package.json
-│   └── .env          # Environment variables
-│
 ├── assets/           # Image and font assets for the mobile app
 ├── database_schema/  # SQL schemas
+├── src/              # Supabase client and other utilities
 ├── App.js            # Main React Native application component
 ├── config.js         # Frontend configuration (e.g., API keys)
 ├── package.json      # Frontend dependencies
@@ -49,55 +36,20 @@ Trafficlites/
 
 ## 🚀 Getting Started
 
-This guide will walk you through setting up the Trafficlites application, including the backend API server and the frontend mobile app.
+This guide will walk you through setting up the Trafficlites application.
 
 ### Prerequisites
 
 - **Node.js:** v18.x or later
 - **npm:** v8.x or later
 - **Git**
-- **PostgreSQL:** A running instance
 - **Expo CLI:** `npm install -g expo-cli`
 
 ---
 
-### Backend (API Server)
+### Setup
 
-1.  **Navigate to Backend Directory:**
-    ```bash
-    cd Backend-api
-    ```
-
-2.  **Install Dependencies:**
-    ```bash
-    npm install
-    ```
-
-3.  **Set Up PostgreSQL Database:**
-    Connect to your PostgreSQL instance and run the following commands:
-    ```sql
-    CREATE DATABASE trafficlites;
-    CREATE USER trafficlites_user WITH PASSWORD 'your_strong_password';
-    GRANT ALL PRIVILEGES ON DATABASE trafficlites TO trafficlites_user;
-    ```
-
-4.  **Configure Environment Variables:**
-    In the `Backend-api/` directory, create a file named `.env` and add your database connection string:
-    ```env
-    DATABASE_URL="postgres://trafficlites_user:your_strong_password@localhost:5432/trafficlites"
-    ```
-
-5.  **Start the Backend Server:**
-    ```bash
-    npm start
-    ```
-    The server will run on port 4000 by default.
-
----
-
-### Frontend (Mobile App)
-
-1.  **Navigate to Project Root & Install Dependencies:**
+1.  **Install Dependencies:**
     From the project's root directory, run:
     ```bash
     npm install
@@ -127,7 +79,7 @@ This guide will walk you through setting up the Trafficlites application, includ
 
 ### ✅ Status
 
-- ✅ React Native app connected to backend
+- ✅ React Native app connected to Supabase
 - ✅ Traffic light markers and directions
 - ✅ Codebase cleaned and refactored for maintainability
 - 🚧 Data prediction and learning model – coming soon
