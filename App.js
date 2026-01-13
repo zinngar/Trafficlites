@@ -1,8 +1,8 @@
 import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, PermissionsAndroid, Platform } from 'react-native';
 import MapView, { Marker, UrlTile } from 'react-native-maps';
-import * as Location from 'expo-location';
+import Geolocation from 'react-native-geolocation-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // --- Main App Component ---
@@ -87,16 +87,46 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
-    // Request location permissions and get current location
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Location permission denied. Please enable it in your settings.');
-        return;
+    const requestLocationPermission = async () => {
+      if (Platform.OS === 'ios') {
+        const authStatus = await Geolocation.requestAuthorization('whenInUse');
+        if (authStatus === 'granted') {
+          getLocation();
+        } else {
+          setErrorMsg('Location permission denied');
+        }
+      } else {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission',
+            message: 'This app needs access to your location.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          },
+        );
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          getLocation();
+        } else {
+          setErrorMsg('Location permission denied');
+        }
       }
-      let loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc.coords);
-    })();
+    };
+
+    const getLocation = () => {
+      Geolocation.getCurrentPosition(
+        (position) => {
+          setLocation(position.coords);
+        },
+        (error) => {
+          setErrorMsg(error.message);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+      );
+    };
+
+    requestLocationPermission();
   }, []);
 
   useEffect(() => {
