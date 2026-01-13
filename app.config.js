@@ -45,8 +45,6 @@ export default ({ config }) => ({
     eas: {
       projectId: '0bc0887b-6e2d-440c-a112-d5cd938f0aa1',
     },
-    supabaseUrl: appConfig.SUPABASE_URL,
-    supabaseAnonKey: appConfig.SUPABASE_ANON_KEY,
   },
   owner: 'zinngar',
   runtimeVersion: {

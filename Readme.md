@@ -2,18 +2,20 @@
 
 🚦 **Description**
 
-Trafficlites is a cross-platform mobile app (Android & iOS) that helps users report traffic light statuses. The app uses a local database to store reports and does not require a backend server.
+Trafficlites is a cross-platform mobile app (Android & iOS) that helps users report and predict traffic light statuses. The app is fully standalone, using local storage to learn and predict traffic light patterns without needing a backend server.
 
-Built with React Native and Expo.
+Built with React Native and Expo, using AsyncStorage for local data persistence.
 
 ---
 
 📱 **Mobile App (React Native + Expo)**
 
-- Interactive map using `react-native-maps`
-- Location tracking via `expo-location`
-- Users can report traffic light colors: green, yellow, or red
-- All data is stored locally on the device.
+- Interactive map using `react-native-maps`.
+- Location tracking via `expo-location`.
+- Users can report traffic light colors (green, yellow, or red).
+- Simple prediction model that learns average light durations based on user reports.
+- Custom map markers that display the predicted status of known traffic lights.
+- All data is stored locally on the device using `@react-native-async-storage/async-storage`.
 
 ---
 
@@ -64,6 +66,6 @@ This guide will walk you through setting up the Trafficlites application.
 
 ### ✅ Status
 
-- ✅ React Native app with local data storage
-- ✅ Traffic light reporting functionality
-- ✅ Codebase cleaned and refactored for maintainability
+- ✅ React Native app with local data storage via AsyncStorage
+- ✅ Traffic light reporting and simple prediction model
+- ✅ Codebase cleaned and refactored for a standalone architecture
