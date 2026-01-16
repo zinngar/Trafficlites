@@ -4,14 +4,14 @@
 
 Trafficlites is a cross-platform mobile app (Android & iOS) that helps users report and predict traffic light statuses. The app is fully standalone, using local storage to learn and predict traffic light patterns without needing a backend server.
 
-Built with React Native and Expo, using AsyncStorage for local data persistence.
+Built with React Native, using AsyncStorage for local data persistence.
 
 ---
 
-📱 **Mobile App (React Native + Expo)**
+📱 **Mobile App (React Native)**
 
 - Interactive map using `react-native-maps`.
-- Location tracking via `expo-location`.
+- Location tracking via `react-native-geolocation-service`.
 - Users can report traffic light colors (green, yellow, or red).
 - Simple prediction model that learns average light durations based on user reports.
 - Custom map markers that display the predicted status of known traffic lights.
@@ -25,6 +25,8 @@ The repository is organized as follows:
 
 ```
 Trafficlites/
+├── android/          # Android native project
+├── ios/              # iOS native project
 ├── assets/           # Image and font assets for the mobile app
 ├── App.js            # Main React Native application component
 ├── package.json      # Frontend dependencies
@@ -42,7 +44,8 @@ This guide will walk you through setting up the Trafficlites application.
 - **Node.js:** v18.x or later
 - **npm:** v8.x or later
 - **Git**
-- **Expo CLI:** `npm install -g expo-cli`
+- **React Native CLI:** `npm install -g react-native-cli`
+- **Android Studio** or **Xcode** for running on an emulator/simulator or a physical device.
 
 ---
 
@@ -56,11 +59,18 @@ This guide will walk you through setting up the Trafficlites application.
 
 2.  **Start the Development Server:**
     ```bash
-    expo start
+    npx react-native start
     ```
 
 3.  **Run the App:**
-    Use the Expo Go app on your physical device to scan the QR code, or run on an emulator/simulator through the Expo Dev Tools interface.
+    - **For Android:**
+      ```bash
+      npx react-native run-android
+      ```
+    - **For iOS:**
+      ```bash
+      npx react-native run-ios
+      ```
 
 ---
 
@@ -69,3 +79,4 @@ This guide will walk you through setting up the Trafficlites application.
 - ✅ React Native app with local data storage via AsyncStorage
 - ✅ Traffic light reporting and simple prediction model
 - ✅ Codebase cleaned and refactored for a standalone architecture
+- ✅ Ejected from Expo to a bare React Native project
